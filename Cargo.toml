@@ -1,0 +1,41 @@
+[package]
+name = "knot-gtk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Knot Contributors"]
+license = "MIT OR Apache-2.0"
+description = "GTK4 frontend for Knot"
+rust-version = "1.70"
+
+[dependencies]
+# GTK4 / libadwaita
+gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] }
+libadwaita = { version = "0.7", features = ["v1_5"] }
+glib = "0.20"
+gio = "0.20"
+
+# Markdown parsing
+pulldown-cmark = "0.13"
+
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -1,0 +1,288 @@
+/* Knot GTK4 - System theme compliant styles */
+
+/* ToolRail button styling */
+.tool-button {
+    border-radius: 8px;
+    padding: 8px;
+    transition: background-color 200ms ease;
+}
+
+.tool-button:hover {
+    background-color: alpha(@theme_fg_color, 0.08);
+}
+
+.tool-button:active {
+    background-color: alpha(@theme_fg_color, 0.15);
+}
+
+/* Active mode indicator - neutral subtle background, NOT red */
+.tool-button.active {
+    background-color: alpha(@theme_fg_color, 0.1);
+}
+
+.tool-button.active:hover {
+    background-color: alpha(@theme_fg_color, 0.15);
+}
+
+/* Ensure icons don't inherit accent color */
+.tool-button image {
+    color: @theme_fg_color;
+}
+
+.tool-button.active image {
+    color: @theme_fg_color;
+}
+
+/* Sidebar navigation items */
+.navigation-sidebar row {
+    border-radius: 6px;
+    margin: 2px 6px;
+}
+
+.navigation-sidebar row:hover {
+    background-color: alpha(@theme_fg_color, 0.06);
+}
+
+.navigation-sidebar row:selected {
+    background-color: alpha(@theme_fg_color, 0.12);
+}
+
+/* Context panel header */
+.context-panel {
+    background-color: @sidebar_bg_color;
+    border-right: 1px solid @borders;
+}
+
+/* Inspector rail */
+.inspector-rail {
+    background-color: @sidebar_bg_color;
+    border-left: 1px solid @borders;
+}
+
+/* Tool rail */
+.tool-rail {
+    background-color: @sidebar_bg_color;
+    border-right: 1px solid @borders;
+}
+
+/* Override any accent color styling on active tool buttons */
+.tool-rail .tool-button.active,
+.tool-rail .tool-button.active:hover {
+    background-color: alpha(@theme_fg_color, 0.1);
+    color: @theme_fg_color;
+}
+
+.tool-rail .tool-button.active image,
+.tool-rail .tool-button.active:hover image {
+    color: @theme_fg_color;
+    -gtk-icon-style: symbolic;
+}
+
+/* Search entry */
+search entry {
+    border-radius: 8px;
+}
+
+/* Tree view in explorer */
+treeview.view {
+    background-color: transparent;
+}
+
+treeview.view:hover {
+    background-color: alpha(@theme_fg_color, 0.04);
+}
+
+treeview.view:selected {
+    background-color: alpha(@theme_fg_color, 0.12);
+}
+
+/* Tree view text cells with badges */
+treeview.cell {
+    padding: 4px 0;
+}
+
+/* Type badges (pills) */
+.badge {
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background-color: alpha(@theme_fg_color, 0.15);
+    color: @theme_fg_color;
+}
+
+/* Note type specific badges */
+.badge.youtube {
+    background-color: alpha(#ff0000, 0.2);
+    color: #ff0000;
+}
+
+.badge.pdf {
+    background-color: alpha(#e74c3c, 0.2);
+    color: #e74c3c;
+}
+
+.badge.image {
+    background-color: alpha(#3498db, 0.2);
+    color: #3498db;
+}
+
+/* ===============================
+   Block Editor Styles
+   =============================== */
+
+/* Code blocks */
+.code-block {
+    background-color: alpha(@theme_fg_color, 0.05);
+    border-radius: 6px;
+    font-family: monospace;
+}
+
+/* Block quotes */
+.block-quote {
+    background-color: alpha(@theme_fg_color, 0.03);
+    border-radius: 6px;
+}
+
+.quote-border {
+    background-color: alpha(@theme_fg_color, 0.2);
+    border-radius: 2px;
+}
+
+/* Headings */
+.title-1 {
+    font-size: 2em;
+    font-weight: 700;
+}
+
+.title-2 {
+    font-size: 1.5em;
+    font-weight: 600;
+}
+
+.title-3 {
+    font-size: 1.25em;
+    font-weight: 600;
+}
+
+.heading-4 {
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+.heading-5, .heading-6 {
+    font-size: 1em;
+    font-weight: 600;
+}
+
+/* Image captions */
+.caption {
+    font-size: 0.9em;
+    color: alpha(@theme_fg_color, 0.7);
+    font-style: italic;
+}
+
+/* Raw blocks */
+.raw-block {
+    font-family: monospace;
+    background-color: alpha(@theme_fg_color, 0.05);
+    padding: 8px;
+    border-radius: 4px;
+}
+
+/* Grid layout */
+.grid-container {
+    border: 1px solid alpha(@theme_fg_color, 0.15);
+    border-radius: 8px;
+    background-color: alpha(@theme_bg_color, 0.5);
+}
+
+.grid-cell {
+    background-color: alpha(@theme_fg_color, 0.03);
+    border-radius: 4px;
+    padding: 8px;
+}
+
+/* Diagram blocks */
+.diagram-placeholder {
+    background-color: alpha(@theme_fg_color, 0.05);
+    border: 1px dashed alpha(@theme_fg_color, 0.3);
+    border-radius: 6px;
+    padding: 16px;
+}
+
+/* Dim label for placeholders */
+.dim-label {
+    color: alpha(@theme_fg_color, 0.5);
+    font-style: italic;
+}
+
+/* ===============================
+   Tufte-Inspired Styles
+   =============================== */
+
+/* Margin notes (sidenotes) */
+.margin-note {
+    font-size: 0.85em;
+    line-height: 1.4;
+    color: alpha(@theme_fg_color, 0.85);
+}
+
+.margin-note-number {
+    font-size: 0.75em;
+    vertical-align: super;
+    color: alpha(@theme_fg_color, 0.6);
+    margin-right: 4px;
+}
+
+.margin-note-text {
+    font-size: 0.9em;
+}
+
+/* Full-width figures */
+.full-width-figure {
+    background-color: transparent;
+}
+
+.figure-caption {
+    font-size: 0.9em;
+    color: alpha(@theme_fg_color, 0.8);
+    margin-top: 8px;
+    font-style: italic;
+}
+
+/* Epigraphs */
+.epigraph {
+    border-left: none;
+    font-family: serif;
+}
+
+.epigraph-quote {
+    font-size: 1.15em;
+    line-height: 1.6;
+    color: alpha(@theme_fg_color, 0.9);
+}
+
+.epigraph-attribution {
+    font-size: 0.9em;
+    color: alpha(@theme_fg_color, 0.6);
+    margin-top: 8px;
+    font-style: normal;
+}
+
+/* Tufte typography - tighter, more elegant */
+.tufte-style .title-1 {
+    font-weight: 400;
+    letter-spacing: -0.02em;
+}
+
+.tufte-style .title-2 {
+    font-weight: 400;
+    font-style: italic;
+}
+
+.tufte-style paragraph {
+    line-height: 1.5;
+    text-align: justify;
+    hyphens: auto;
+}

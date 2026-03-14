@@ -7,3 +7,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 ### Added
 
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.
+
+### Fixed
+
+- Match the CLI default socket path with the documented `XDG_RUNTIME_DIR/knot/knot.sock` contract so the baseline Rust test suite passes.

@@ -74,6 +74,8 @@ The default socket path is determined in this priority:
 3. `$XDG_RUNTIME_DIR/knot/knot.sock` (usually `/run/user/1000/knot/knot.sock`)
 4. `/run/user/1000/knot/knot.sock` (fallback)
 
+The CLI and client now use the same default socket contract: when `XDG_RUNTIME_DIR` is set, the socket path is resolved under the `knot/` subdirectory rather than directly in the runtime directory.
+
 ## Data Integration
 
 The GTK4 app integrates with knotd via JSON-RPC to provide:
