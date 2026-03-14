@@ -36,6 +36,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 bash scripts/check-doc-work-evidence.sh
+bash scripts/check-changelog-policy.sh
+bash scripts/check-changelog-staged.sh
 bash scripts/check-rust-format.sh
 echo "pre-commit-gate: running cargo check"
 cargo check

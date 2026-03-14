@@ -36,6 +36,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 bash scripts/check-pre-commit-gate.sh --no-marker
+bash scripts/check-changelog-policy.sh
 bash scripts/check-rust-tests.sh --workspace
 bash scripts/check-property-tests.sh
 bash scripts/check-fuzz.sh

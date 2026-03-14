@@ -57,12 +57,14 @@ Use these rules from `rust-skills` throughout the parity work:
 3. Implement the smallest passing change.
 4. Re-run the targeted tests.
 5. Refactor only if tests are green.
+6. Update `CHANGELOG.md` if the task changes behavior, tooling, workflow, policy, or other committed implementation state.
 
 ### After the task
 
 1. Run the slice-local test set.
 2. Read the diff and remove dead code.
 3. Check whether names, error messages, and comments are still clear.
+4. Check whether `CHANGELOG.md` is staged and follows Common Changelog format.
 
 ## Test Templates
 
@@ -185,6 +187,7 @@ Run this after each task and again after each slice:
 - Did I log an error instead of surfacing it to state where the slice requires user-visible feedback?
 - Did I leave TODOs without documenting them in the plan or spec?
 - Did I accidentally edit files owned by another slice?
+- Did I update `CHANGELOG.md` for this task if any committed implementation or workflow changed?
 
 ## Full Slice Gate
 

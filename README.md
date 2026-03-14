@@ -167,6 +167,8 @@ This repository includes local git gate scripts in `scripts/` and repo-local hoo
 The pre-commit gate checks:
 
 - staged documentation evidence
+- `CHANGELOG.md` presence and Common Changelog structure
+- staged `CHANGELOG.md` updates for staged implementation, tooling, hook, docs, and policy changes
 - `cargo fmt --check`
 - `cargo check`
 - Rust tests
@@ -175,7 +177,18 @@ The pre-commit gate checks:
 
 If staged changes include code or build files under `src/`, `scripts/`, `.githooks/`, `Cargo.toml`, `Cargo.lock`, `build.rs`, or `justfile`, then the commit must also stage documentation updates under `docs/` or `README.md`.
 
+If staged changes include `src/`, `scripts/`, `.githooks/`, `Cargo.toml`, `Cargo.lock`, `build.rs`, `justfile`, `README.md`, `AGENTS.md`, or `docs/`, then the commit must also stage an update to `CHANGELOG.md` in Common Changelog format.
+
 Docs-only commits are allowed.
+
+## Changelog Policy
+
+This repository maintains a root `CHANGELOG.md` using the Common Changelog standard.
+
+- required heading: `# Changelog`
+- allowed group headings: `Added`, `Changed`, `Fixed`, `Removed`
+- update `CHANGELOG.md` for any task-completion change in code, tooling, hooks, docs policy, or workflow
+- stage the changelog update in the same commit as the implementation or policy change
 
 ### Full Gate
 
