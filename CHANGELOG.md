@@ -21,7 +21,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Fixed
 
-- Match the CLI default socket path with the documented `XDG_RUNTIME_DIR/knot/knot.sock` contract so the baseline Rust test suite passes.
+- Match the CLI default socket path with the documented `XDG_RUNTIME_DIR/knot/knotd.sock` contract so the GTK app matches the daemon and other clients.
 - Align the GTK shell startup and routing implementation with the shell contract by adding a real search content surface, applying initial shell state on vault-open startup, and wiring actionable startup controls.
 - Replace deprecated GTK file chooser usage in the shell startup flow with `gtk::FileDialog` and document the project policy against introducing deprecated GTK APIs.
 - Keep the GTK shell usable when vault-info lookup fails after a successful daemon connection.

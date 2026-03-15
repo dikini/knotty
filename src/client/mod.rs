@@ -355,11 +355,11 @@ fn default_socket_path() -> String {
     if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
         std::path::PathBuf::from(runtime_dir)
             .join("knot")
-            .join("knot.sock")
+            .join("knotd.sock")
             .to_string_lossy()
             .to_string()
     } else {
-        "/run/user/1000/knot/knot.sock".to_string()
+        "/run/user/1000/knot/knotd.sock".to_string()
     }
 }
 

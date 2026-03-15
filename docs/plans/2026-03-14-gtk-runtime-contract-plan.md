@@ -30,6 +30,7 @@
 - `GTR-001` was already satisfied in the branch baseline and was verified rather than reimplemented.
 - `GTR-002` through `GTR-006` were implemented, including async note loading, stale-result protection, and bridge disconnect handling.
 - Review follow-up: async note-load completion now preserves a newer Graph or Settings surface instead of forcing the editor route after late results.
+- Contract correction: the daemon-backed default socket path is `.../knot/knotd.sock`, matching the running `knotd` service and other clients.
 - Final verification: `cargo fmt --check`, `cargo test`, and `cargo check` passed on the completed slice.
 
 ## Rust Guidance For This Slice
@@ -161,7 +162,7 @@ Parallel work is allowed after `GTR-001` if the developers do not edit the same 
 **Steps**
 1. Add or tighten tests for `XDG_RUNTIME_DIR` and fallback behavior.
 2. Run `cargo test cli::tests::test_default_socket_path -- --exact` and confirm red.
-3. Fix `default_socket_path()` to match the documented `.../knot/knot.sock` contract.
+3. Fix `default_socket_path()` to match the documented `.../knot/knotd.sock` contract.
 4. Re-run the same test until green.
 5. Review for duplicated path-building logic and keep only the minimal helper extraction needed.
 
@@ -177,7 +178,7 @@ fn default_socket_path_uses_xdg_runtime_dir_knot_subdirectory() {
     std::env::set_var("XDG_RUNTIME_DIR", "/tmp/runtime");
     assert_eq!(
         CliArgs::default_socket_path(),
-        std::path::PathBuf::from("/tmp/runtime/knot/knot.sock")
+        std::path::PathBuf::from("/tmp/runtime/knot/knotd.sock")
     );
 }
 ```

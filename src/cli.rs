@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 const DEFAULT_SOCKET_DIR: &str = "/run/user/1000/knot";
-const DEFAULT_SOCKET_NAME: &str = "knot.sock";
+const DEFAULT_SOCKET_NAME: &str = "knotd.sock";
 
 #[derive(Debug, Clone)]
 pub struct CliArgs {
@@ -85,7 +85,7 @@ impl CliArgs {
         println!();
         println!("Options:");
         println!("  -s, --socket <PATH>    Path to knotd Unix socket");
-        println!("                         [default: $XDG_RUNTIME_DIR/knot/knot.sock or /run/user/1000/knot/knot.sock]");
+        println!("                         [default: $XDG_RUNTIME_DIR/knot/knotd.sock or /run/user/1000/knot/knotd.sock]");
         println!("  -v, --vault <PATH>     Path to vault (for auto-starting knotd)");
         println!("  -h, --help             Print this help message");
         println!("  -V, --version          Print version information");
@@ -108,12 +108,12 @@ mod tests {
         // Test with XDG_RUNTIME_DIR set
         std::env::set_var("XDG_RUNTIME_DIR", "/tmp/test-runtime");
         let path = CliArgs::default_socket_path();
-        assert_eq!(path, PathBuf::from("/tmp/test-runtime/knot/knot.sock"));
+        assert_eq!(path, PathBuf::from("/tmp/test-runtime/knot/knotd.sock"));
 
         // Test without XDG_RUNTIME_DIR
         std::env::remove_var("XDG_RUNTIME_DIR");
         let path = CliArgs::default_socket_path();
-        assert_eq!(path, PathBuf::from("/run/user/1000/knot/knot.sock"));
+        assert_eq!(path, PathBuf::from("/run/user/1000/knot/knotd.sock"));
 
         // Restore original
         match original {
