@@ -32,3 +32,6 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Keep the search shortcut cheap by consulting cached startup state, and refresh daemon-unavailable detail text when startup diagnostics change.
 - Keep async note-load completion from forcing Search back to Notes unless the load was explicitly initiated from a search result.
 - Simplify GTK shell callback wiring by removing row-name-coupled search activation, collapsing repeated search reset logic, dropping unnecessary window-level `ContextPanel` interior mutability, and centralizing startup refresh handles.
+- Prevent an in-flight note load from re-populating the editor after the note has been cleared or deleted by bumping the load generation in `clear_active_note`.
+- Remove unused `SimpleNoteList` that performed a blocking RPC call on the GTK main thread.
+- Clarify `select_tree_item` by removing the unused `suppress_note` parameter — note activation is always suppressed for programmatic selection.

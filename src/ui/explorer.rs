@@ -396,10 +396,8 @@ fn can_rename_selection(selection: &ExplorerSelection) -> bool {
     !selection.path().trim().is_empty()
 }
 
-fn set_silent_note_activation(suppress_note_activation: &Rc<Cell<bool>>, suppress: bool) {
-    if suppress {
-        suppress_note_activation.set(true);
-    }
+fn set_silent_note_activation(suppress_note_activation: &Rc<Cell<bool>>) {
+    suppress_note_activation.set(true);
 }
 
 fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
@@ -411,11 +409,7 @@ fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
     }
 }
 
-fn select_tree_item(
-    handles: &ExplorerHandles,
-    selection: &ExplorerSelection,
-    suppress_note: bool,
-) -> bool {
+fn select_tree_item(handles: &ExplorerHandles, selection: &ExplorerSelection) -> bool {
     let Some(tree_path) = handles.path_index.borrow().get(selection.path()).cloned() else {
         return false;
     };
@@ -423,7 +417,7 @@ fn select_tree_item(
     let current = handles.selected_item.borrow().clone();
     let selection_changed = current.as_ref() != Some(selection);
     if selection_changed {
-        set_silent_note_activation(&handles.suppress_note_activation, suppress_note);
+        set_silent_note_activation(&handles.suppress_note_activation);
     }
 
     handles.tree_view.selection().select_path(&tree_path);
@@ -445,7 +439,7 @@ fn select_tree_item(
 fn apply_refresh_follow_up(handles: &ExplorerHandles, follow_up: RefreshFollowUp) {
     match follow_up {
         RefreshFollowUp::PreserveCurrent(Some(selection)) | RefreshFollowUp::Focus(selection) => {
-            if !select_tree_item(handles, &selection, true) {
+            if !select_tree_item(handles, &selection) {
                 clear_selection_internal(handles, true);
             }
         }
@@ -460,7 +454,7 @@ fn apply_refresh_follow_up(handles: &ExplorerHandles, follow_up: RefreshFollowUp
             request_note_selection_internal(handles, &path);
         }
         RefreshFollowUp::FocusAndClear(selection) => {
-            if !select_tree_item(handles, &selection, true) {
+            if !select_tree_item(handles, &selection) {
                 clear_selection_internal(handles, true);
             }
             emit_selection_cleared(&handles.on_selection_cleared);
@@ -557,7 +551,7 @@ fn request_note_selection_internal(handles: &ExplorerHandles, path: &str) {
     let selection = ExplorerSelection::Note {
         path: path.to_string(),
     };
-    let _ = select_tree_item(handles, &selection, true);
+    let _ = select_tree_item(handles, &selection);
     let decision = dispatch_note_selection_request(
         &handles.on_note_selected,
         &handles.note_switch_guard,
@@ -748,7 +742,7 @@ impl ExplorerView {
                     emit_status(&handles_for_selection.on_status_changed, &message, true);
                     match previous_selection {
                         Some(previous_selection) => {
-                            if !select_tree_item(&handles_for_selection, &previous_selection, true)
+                    if !select_tree_item(&handles_for_selection, &previous_selection)
                             {
                                 clear_selection_internal(&handles_for_selection, true);
                             }
@@ -1290,171 +1284,5 @@ mod tests {
             }),
             None
         );
-    }
-}
-
-// Simple list-based explorer (alternative to tree view for flatter UI)
-pub struct SimpleNoteList {
-    widget: gtk::ScrolledWindow,
-    list_box: gtk::ListBox,
-    client: Rc<KnotdClient>,
-    on_note_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
-}
-
-impl SimpleNoteList {
-    pub fn new(client: Rc<KnotdClient>) -> Self {
-        let list_box = gtk::ListBox::builder()
-            .selection_mode(gtk::SelectionMode::Single)
-            .css_name("navigation-sidebar")
-            .build();
-
-        let scrolled = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .child(&list_box)
-            .build();
-
-        let on_note_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>> = Rc::new(RefCell::new(None));
-
-        let on_note_selected_clone = Rc::clone(&on_note_selected);
-        list_box.connect_row_activated(move |_, row| {
-            if let Some(name) = row.widget_name().as_str().strip_prefix("note-") {
-                if let Some(ref cb) = *on_note_selected_clone.borrow() {
-                    cb(name);
-                }
-            }
-        });
-
-        Self {
-            widget: scrolled,
-            list_box,
-            client,
-            on_note_selected,
-        }
-    }
-
-    pub fn load_notes(&self, notes: &[crate::client::NoteSummary]) {
-        while let Some(child) = self.list_box.first_child() {
-            self.list_box.remove(&child);
-        }
-
-        for note in notes {
-            let row = self.create_note_row(note);
-            self.list_box.append(&row);
-        }
-    }
-
-    fn create_note_row(&self, note: &crate::client::NoteSummary) -> gtk::ListBoxRow {
-        let row = gtk::ListBoxRow::new();
-        row.set_widget_name(&format!("note-{}", note.path));
-
-        let container = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .margin_top(8)
-            .margin_bottom(8)
-            .margin_start(12)
-            .margin_end(12)
-            .spacing(8)
-            .build();
-
-        let icon_name = match (note.note_type.clone(), note.type_badge.as_deref()) {
-            (Some(crate::client::NoteType::Youtube), _) => "video-x-generic",
-            (Some(crate::client::NoteType::Pdf), _) => "application-pdf",
-            (Some(crate::client::NoteType::Image), _) => "image-x-generic",
-            (_, Some(badge))
-                if badge.eq_ignore_ascii_case("png")
-                    || badge.eq_ignore_ascii_case("jpg")
-                    || badge.eq_ignore_ascii_case("jpeg")
-                    || badge.eq_ignore_ascii_case("gif")
-                    || badge.eq_ignore_ascii_case("webp")
-                    || badge.eq_ignore_ascii_case("svg") =>
-            {
-                "image-x-generic"
-            }
-            _ => "text-x-markdown",
-        };
-
-        let icon = gtk::Image::builder()
-            .icon_name(icon_name)
-            .pixel_size(24)
-            .build();
-
-        let text_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .hexpand(true)
-            .build();
-
-        let title_row = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(8)
-            .build();
-
-        let title = gtk::Label::builder()
-            .label(&note.title)
-            .xalign(0.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .css_classes(vec!["title".to_string()])
-            .hexpand(true)
-            .build();
-
-        title_row.append(&title);
-
-        if let Some(ref badge) = note.type_badge {
-            if !badge.is_empty() && badge != "markdown" {
-                let css_class = match badge.as_str() {
-                    "youtube" => "youtube",
-                    "pdf" => "pdf",
-                    "image" => "image",
-                    _ => "",
-                };
-
-                let badge_label = gtk::Label::builder().label(&badge.to_uppercase()).build();
-                badge_label.add_css_class("badge");
-                if !css_class.is_empty() {
-                    badge_label.add_css_class(css_class);
-                }
-                title_row.append(&badge_label);
-            }
-        }
-
-        let meta = gtk::Label::builder()
-            .label(&format!("{} words", note.word_count))
-            .xalign(0.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .max_width_chars(30)
-            .lines(1)
-            .css_classes(vec!["caption".to_string(), "dim-label".to_string()])
-            .build();
-
-        text_box.append(&title_row);
-        text_box.append(&meta);
-
-        container.append(&icon);
-        container.append(&text_box);
-        row.set_child(Some(&container));
-
-        row
-    }
-
-    pub fn refresh(&self) {
-        match self.client.list_notes() {
-            Ok(notes) => {
-                self.load_notes(&notes);
-            }
-            Err(e) => {
-                log::error!("Failed to load notes: {}", e);
-            }
-        }
-    }
-
-    pub fn connect_note_selected<F>(&self, f: F)
-    where
-        F: Fn(&str) + 'static,
-    {
-        *self.on_note_selected.borrow_mut() = Some(Box::new(f));
-    }
-
-    pub fn widget(&self) -> &gtk::ScrolledWindow {
-        &self.widget
     }
 }
