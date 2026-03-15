@@ -12,6 +12,18 @@ use crate::ui::async_bridge;
 const MAX_RESULTS: usize = 10;
 const DEBOUNCE_MS: u64 = 300;
 
+type ResultSelectedCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
+
+struct SearchStateWidgets<'a> {
+    state: &'a RefCell<SearchState>,
+    results: &'a RefCell<Vec<SearchResult>>,
+    selected_index: &'a RefCell<i32>,
+    search_generation: &'a RefCell<u64>,
+    suppress_search_changed: &'a RefCell<bool>,
+    status_label: &'a gtk::Label,
+    results_list: &'a gtk::ListBox,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SearchState {
     Idle,
@@ -102,27 +114,18 @@ fn clear_results_ui(
     *selected_index.borrow_mut() = -1;
 }
 
-fn clear_search_view(
-    search_entry: &gtk::SearchEntry,
-    state: &RefCell<SearchState>,
-    results: &RefCell<Vec<SearchResult>>,
-    selected_index: &RefCell<i32>,
-    search_generation: &RefCell<u64>,
-    suppress_search_changed: &RefCell<bool>,
-    status_label: &gtk::Label,
-    results_list: &gtk::ListBox,
-) {
-    *search_generation.borrow_mut() += 1;
-    *suppress_search_changed.borrow_mut() =
+fn clear_search_view(search_entry: &gtk::SearchEntry, widgets: &SearchStateWidgets<'_>) {
+    *widgets.search_generation.borrow_mut() += 1;
+    *widgets.suppress_search_changed.borrow_mut() =
         should_suppress_search_changed_on_clear(search_entry.text().as_str());
     search_entry.set_text("");
     set_search_state(
-        state,
+        widgets.state,
         SearchState::Idle,
-        status_label,
-        results,
-        selected_index,
-        results_list,
+        widgets.status_label,
+        widgets.results,
+        widgets.selected_index,
+        widgets.results_list,
         None,
     );
 }
@@ -145,14 +148,7 @@ fn result_path_at(results: &RefCell<Vec<SearchResult>>, index: i32) -> Option<St
 pub struct SearchView {
     widget: gtk::Box,
     search_entry: gtk::SearchEntry,
-    results_list: gtk::ListBox,
-    status_label: gtk::Label,
-    on_result_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
-    selected_index: RefCell<i32>,
-    results: RefCell<Vec<SearchResult>>,
-    search_generation: RefCell<u64>,
-    suppress_search_changed: RefCell<bool>,
-    state: RefCell<SearchState>,
+    on_result_selected: ResultSelectedCallback,
 }
 
 impl SearchView {
@@ -210,8 +206,7 @@ impl SearchView {
         widget.append(&scrolled);
         widget.append(&hint_label);
 
-        let on_result_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_result_selected: ResultSelectedCallback = Rc::new(RefCell::new(None));
         let selected_index = RefCell::new(-1i32);
         let results = RefCell::new(Vec::new());
         let search_generation = RefCell::new(0u64);
@@ -412,13 +407,15 @@ impl SearchView {
             gdk::Key::Escape => {
                 clear_search_view(
                     &search_entry_ref,
-                    &state_ref,
-                    &results_ref,
-                    &selected_index_ref,
-                    &search_generation_ref,
-                    &suppress_search_changed_ref,
-                    &status_label_ref,
-                    &results_list_ref_for_clear,
+                    &SearchStateWidgets {
+                        state: &state_ref,
+                        results: &results_ref,
+                        selected_index: &selected_index_ref,
+                        search_generation: &search_generation_ref,
+                        suppress_search_changed: &suppress_search_changed_ref,
+                        status_label: &status_label_ref,
+                        results_list: &results_list_ref_for_clear,
+                    },
                 );
                 glib::Propagation::Proceed
             }
@@ -440,32 +437,12 @@ impl SearchView {
         Self {
             widget,
             search_entry,
-            results_list,
-            status_label,
             on_result_selected,
-            selected_index,
-            results,
-            search_generation,
-            suppress_search_changed,
-            state,
         }
     }
 
     pub fn grab_focus(&self) {
         self.search_entry.grab_focus();
-    }
-
-    pub fn clear(&self) {
-        clear_search_view(
-            &self.search_entry,
-            &self.state,
-            &self.results,
-            &self.selected_index,
-            &self.search_generation,
-            &self.suppress_search_changed,
-            &self.status_label,
-            &self.results_list,
-        );
     }
 
     pub fn connect_result_selected<F>(&self, f: F)
@@ -478,6 +455,90 @@ impl SearchView {
     pub fn widget(&self) -> &gtk::Box {
         &self.widget
     }
+}
+
+fn create_search_result_row(
+    result: &SearchResult,
+    query: &str,
+    is_selected: bool,
+) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+
+    if is_selected {
+        row.add_css_class("selected");
+    }
+
+    let container = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(12)
+        .margin_end(12)
+        .spacing(4)
+        .build();
+
+    // Title with highlighted match
+    let title = gtk::Label::builder()
+        .label(highlight_text(&result.title, query))
+        .use_markup(true)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(vec!["title".to_string()])
+        .build();
+
+    // Excerpt
+    let excerpt = gtk::Label::builder()
+        .label(&result.excerpt)
+        .xalign(0.0)
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .lines(2)
+        .css_classes(vec!["caption".to_string(), "dim-label".to_string()])
+        .build();
+
+    container.append(&title);
+    container.append(&excerpt);
+    row.set_child(Some(&container));
+
+    row
+}
+
+/// Highlight matching text using Pango markup
+fn highlight_text(text: &str, query: &str) -> String {
+    if query.is_empty() {
+        return glib::markup_escape_text(text).to_string();
+    }
+
+    let query_lower = query.to_lowercase();
+    let text_lower = text.to_lowercase();
+
+    let mut result = String::new();
+    let mut last_end = 0;
+
+    // Find all occurrences (case insensitive)
+    while let Some(pos) = text_lower[last_end..].find(&query_lower) {
+        let start = last_end + pos;
+        let end = start + query.len();
+
+        // Add text before match
+        if start > last_end {
+            result.push_str(&glib::markup_escape_text(&text[last_end..start]));
+        }
+
+        // Add highlighted match
+        result.push_str("<b>");
+        result.push_str(&glib::markup_escape_text(&text[start..end]));
+        result.push_str("</b>");
+
+        last_end = end;
+    }
+
+    // Add remaining text
+    if last_end < text.len() {
+        result.push_str(&glib::markup_escape_text(&text[last_end..]));
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -546,88 +607,4 @@ mod tests {
         assert_eq!(result_path_at(&results, -1), None);
         assert_eq!(result_path_at(&results, 2), None);
     }
-}
-
-fn create_search_result_row(
-    result: &SearchResult,
-    query: &str,
-    is_selected: bool,
-) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-
-    if is_selected {
-        row.add_css_class("selected");
-    }
-
-    let container = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .margin_top(8)
-        .margin_bottom(8)
-        .margin_start(12)
-        .margin_end(12)
-        .spacing(4)
-        .build();
-
-    // Title with highlighted match
-    let title = gtk::Label::builder()
-        .label(&highlight_text(&result.title, query))
-        .use_markup(true)
-        .xalign(0.0)
-        .ellipsize(gtk::pango::EllipsizeMode::End)
-        .css_classes(vec!["title".to_string()])
-        .build();
-
-    // Excerpt
-    let excerpt = gtk::Label::builder()
-        .label(&result.excerpt)
-        .xalign(0.0)
-        .wrap(true)
-        .wrap_mode(gtk::pango::WrapMode::WordChar)
-        .lines(2)
-        .css_classes(vec!["caption".to_string(), "dim-label".to_string()])
-        .build();
-
-    container.append(&title);
-    container.append(&excerpt);
-    row.set_child(Some(&container));
-
-    row
-}
-
-/// Highlight matching text using Pango markup
-fn highlight_text(text: &str, query: &str) -> String {
-    if query.is_empty() {
-        return glib::markup_escape_text(text).to_string();
-    }
-
-    let query_lower = query.to_lowercase();
-    let text_lower = text.to_lowercase();
-
-    let mut result = String::new();
-    let mut last_end = 0;
-
-    // Find all occurrences (case insensitive)
-    while let Some(pos) = text_lower[last_end..].find(&query_lower) {
-        let start = last_end + pos;
-        let end = start + query.len();
-
-        // Add text before match
-        if start > last_end {
-            result.push_str(&glib::markup_escape_text(&text[last_end..start]));
-        }
-
-        // Add highlighted match
-        result.push_str("<b>");
-        result.push_str(&glib::markup_escape_text(&text[start..end]));
-        result.push_str("</b>");
-
-        last_end = end;
-    }
-
-    // Add remaining text
-    if last_end < text.len() {
-        result.push_str(&glib::markup_escape_text(&text[last_end..]));
-    }
-
-    result
 }

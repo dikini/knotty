@@ -40,6 +40,11 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
 - Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
+- Tighten the GTK quality slice so it targets clean `cargo check` and `cargo clippy` output, not just a partial warning reduction.
+
+### Fixed
+
+- Clean up the current GTK codebase to a warning-free `cargo check` and `cargo clippy` baseline by removing dead CLI and sidebar paths, simplifying shell/search/editor/window callback plumbing, and documenting the client wrappers intentionally retained for the upcoming graph and settings slices.
 
 ### Fixed
 

@@ -204,6 +204,8 @@ pub struct EditorPosition {
     pub top_line: usize,
 }
 
+type ModifiedChangedCallback = Rc<RefCell<Option<Box<dyn Fn(bool)>>>>;
+
 /// Note editor widget with meta, source, edit, and view modes
 pub struct NoteEditor {
     widget: gtk::Box,
@@ -223,7 +225,7 @@ pub struct NoteEditor {
     client: Rc<KnotdClient>,
     document_state: Rc<RefCell<EditorDocumentState>>,
     current_mode: RefCell<EditorMode>,
-    on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_modified_changed: ModifiedChangedCallback,
     suppress_content_changed: Rc<RefCell<bool>>,
     suppress_meta_changed: Rc<RefCell<bool>>,
     meta_rows: Rc<RefCell<Vec<MetadataRow>>>,
@@ -722,11 +724,8 @@ impl NoteEditor {
         }
 
         // Update other views if needed
-        match *self.current_mode.borrow() {
-            EditorMode::View => {
-                self.view_handles().refresh_from_current_note();
-            }
-            _ => {}
+        if *self.current_mode.borrow() == EditorMode::View {
+            self.view_handles().refresh_from_current_note();
         }
 
         self.set_mode(default_mode_for_note(note));
@@ -832,7 +831,7 @@ impl NoteEditor {
 #[derive(Clone)]
 struct EditorHandles {
     document_state: Rc<RefCell<EditorDocumentState>>,
-    on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_modified_changed: ModifiedChangedCallback,
     suppress_content_changed: Rc<RefCell<bool>>,
     title_entry: gtk::Entry,
     text_view: gtk::TextView,
@@ -894,7 +893,7 @@ struct MetaHandles {
     meta_tags_entry: gtk::Entry,
     meta_rows_box: gtk::Box,
     meta_rows: Rc<RefCell<Vec<MetadataRow>>>,
-    on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_modified_changed: ModifiedChangedCallback,
     suppress_content_changed: Rc<RefCell<bool>>,
     suppress_meta_changed: Rc<RefCell<bool>>,
 }
@@ -1806,8 +1805,8 @@ fn escape_markup(text: &str) -> String {
 fn extract_title_from_markdown(content: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("# ") {
-            return trimmed[2..].trim().to_string();
+        if let Some(stripped) = trimmed.strip_prefix("# ") {
+            return stripped.trim().to_string();
         }
     }
     "Untitled".to_string()

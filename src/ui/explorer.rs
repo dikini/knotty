@@ -37,7 +37,9 @@ impl ExplorerSelection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoteSwitchDecision {
     Allow,
+    #[allow(dead_code)]
     Deny,
+    #[allow(dead_code)]
     SaveThenAllow,
     Prompt,
 }

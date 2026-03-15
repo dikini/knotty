@@ -5,14 +5,12 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct CliArgs {
     pub socket_path: PathBuf,
-    pub vault_path: Option<PathBuf>,
 }
 
 impl CliArgs {
     pub fn parse() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let mut socket_path = None;
-        let mut vault_path = None;
 
         let mut i = 1;
         while i < args.len() {
@@ -23,15 +21,6 @@ impl CliArgs {
                         i += 2;
                     } else {
                         eprintln!("Error: --socket requires a path argument");
-                        std::process::exit(1);
-                    }
-                }
-                "--vault" | "-v" => {
-                    if i + 1 < args.len() {
-                        vault_path = Some(PathBuf::from(&args[i + 1]));
-                        i += 2;
-                    } else {
-                        eprintln!("Error: --vault requires a path argument");
                         std::process::exit(1);
                     }
                 }
@@ -63,10 +52,7 @@ impl CliArgs {
                 std::process::exit(1);
             });
 
-        Self {
-            socket_path,
-            vault_path,
-        }
+        Self { socket_path }
     }
 
     fn default_socket_path() -> Option<PathBuf> {
@@ -84,7 +70,6 @@ impl CliArgs {
             "                         [default: {}]",
             crate::runtime_contract::default_socket_help()
         );
-        println!("  -v, --vault <PATH>     Path to vault (for auto-starting knotd)");
         println!("  -h, --help             Print this help message");
         println!("  -V, --version          Print version information");
         println!();

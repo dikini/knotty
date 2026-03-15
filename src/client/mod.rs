@@ -57,14 +57,6 @@ impl KnotdClient {
         }
     }
 
-    pub fn socket_path(&self) -> &str {
-        &self.socket_path
-    }
-
-    pub fn is_connected(&self) -> bool {
-        UnixStream::connect(&self.socket_path).is_ok()
-    }
-
     fn next_id() -> u64 {
         NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
     }
@@ -173,53 +165,36 @@ impl KnotdClient {
             .ok_or_else(|| ClientError::Rpc(format!("Tool {name} returned no text payload")))?;
 
         // Parse the JSON text content
-        serde_json::from_str(text).map_err(|e| ClientError::Json(e))
-    }
-
-    /// List available tools from knotd
-    pub fn list_tools(&self) -> Result<Vec<ToolDescriptor>> {
-        let result = self.call_jsonrpc("tools/list", json!({}))?;
-        let tools = result.get("tools").cloned().unwrap_or_else(|| json!([]));
-        serde_json::from_value(tools).map_err(|e| ClientError::Json(e))
+        serde_json::from_str(text).map_err(ClientError::Json)
     }
 
     // ===== Vault Operations =====
 
     pub fn get_vault_info(&self) -> Result<VaultInfo> {
         let value = self.call_tool("get_vault_info", json!({}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn is_vault_open(&self) -> Result<bool> {
         let value = self.call_tool("is_vault_open", json!({}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn open_vault(&self, path: &str) -> Result<VaultInfo> {
         let value = self.call_tool("open_vault", json!({"path": path}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn create_vault(&self, path: &str) -> Result<VaultInfo> {
         let value = self.call_tool("create_vault", json!({"path": path}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
-    }
-
-    pub fn close_vault(&self) -> Result<()> {
-        self.call_tool("close_vault", json!({}))?;
-        Ok(())
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     // ===== Note Operations =====
 
-    pub fn list_notes(&self) -> Result<Vec<NoteSummary>> {
-        let value = self.call_tool("list_notes", json!({}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
-    }
-
     pub fn get_note(&self, path: &str) -> Result<NoteData> {
         let value = self.call_tool("get_note", json!({"path": path}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn save_note(&self, path: &str, content: &str) -> Result<()> {
@@ -233,7 +208,7 @@ impl KnotdClient {
             args["content"] = json!(content);
         }
         let value = self.call_tool("create_note", args)?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn delete_note(&self, path: &str) -> Result<()> {
@@ -249,15 +224,6 @@ impl KnotdClient {
         Ok(())
     }
 
-    pub fn get_recent_notes(&self, limit: Option<usize>) -> Result<Vec<NoteSummary>> {
-        let mut args = json!({});
-        if let Some(limit) = limit {
-            args["limit"] = json!(limit);
-        }
-        let value = self.call_tool("get_recent_notes", args)?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
-    }
-
     // ===== Search Operations =====
 
     pub fn search_notes(&self, query: &str, limit: Option<usize>) -> Result<Vec<SearchResult>> {
@@ -266,23 +232,14 @@ impl KnotdClient {
             args["limit"] = json!(limit);
         }
         let value = self.call_tool("search_notes", args)?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
-    }
-
-    pub fn search_suggestions(&self, query: &str, limit: Option<usize>) -> Result<Vec<String>> {
-        let mut args = json!({"query": query});
-        if let Some(limit) = limit {
-            args["limit"] = json!(limit);
-        }
-        let value = self.call_tool("search_suggestions", args)?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     // ===== Explorer Operations =====
 
     pub fn get_explorer_tree(&self) -> Result<ExplorerTree> {
         let value = self.call_tool("get_explorer_tree", json!({}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     pub fn set_folder_expanded(&self, path: &str, expanded: bool) -> Result<()> {
@@ -316,14 +273,16 @@ impl KnotdClient {
 
     // ===== Graph Operations =====
 
+    #[allow(dead_code)]
     pub fn get_graph_layout(&self, width: f64, height: f64) -> Result<GraphLayout> {
         let value = self.call_tool(
             "get_graph_layout",
             json!({"width": width, "height": height}),
         )?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
+    #[allow(dead_code)]
     pub fn graph_neighbors(&self, path: &str, depth: Option<usize>) -> Result<Value> {
         let mut args = json!({"path": path});
         if let Some(depth) = depth {
@@ -334,14 +293,16 @@ impl KnotdClient {
 
     // ===== Settings Operations =====
 
+    #[allow(dead_code)]
     pub fn get_vault_settings(&self) -> Result<VaultSettings> {
         let value = self.call_tool("get_vault_settings", json!({}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
+    #[allow(dead_code)]
     pub fn update_vault_settings(&self, patch: Value) -> Result<VaultSettings> {
         let value = self.call_tool("update_vault_settings", json!({"patch": patch}))?;
-        serde_json::from_value(value).map_err(|e| ClientError::Json(e))
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 }
 
@@ -360,26 +321,6 @@ fn default_socket_path() -> String {
 
 // ===== Data Types =====
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ToolDescriptor {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(rename = "inputSchema")]
-    pub input_schema: ToolSchema,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ToolSchema {
-    #[serde(rename = "type", default)]
-    pub schema_type: Option<String>,
-    #[serde(default)]
-    pub properties: Value,
-    #[serde(default)]
-    pub required: Vec<String>,
-}
-
-// Vault types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultInfo {
     pub path: String,
@@ -390,6 +331,7 @@ pub struct VaultInfo {
     pub last_modified: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultSettings {
     pub name: String,
@@ -400,32 +342,13 @@ pub struct VaultSettings {
     pub editor: VaultEditorSettings,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultEditorSettings {
     #[serde(rename = "font_size")]
     pub font_size: i32,
     #[serde(rename = "tab_size")]
     pub tab_size: i32,
-}
-
-// Note types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NoteSummary {
-    pub id: String,
-    pub path: String,
-    pub title: String,
-    #[serde(rename = "created_at")]
-    pub created_at: i64,
-    #[serde(rename = "modified_at")]
-    pub modified_at: i64,
-    #[serde(rename = "word_count")]
-    pub word_count: usize,
-    #[serde(rename = "note_type")]
-    pub note_type: Option<NoteType>,
-    #[serde(rename = "type_badge")]
-    pub type_badge: Option<String>,
-    #[serde(default)]
-    pub is_dimmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -569,12 +492,14 @@ pub struct ExplorerNoteNode {
 }
 
 // Graph types
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphLayout {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
@@ -583,6 +508,7 @@ pub struct GraphNode {
     pub y: f64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source: String,
