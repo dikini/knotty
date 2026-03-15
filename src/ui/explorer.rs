@@ -43,7 +43,7 @@ pub enum NoteSwitchDecision {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ExplorerRowKind {
-    Folder { expanded: bool },
+    Folder,
     Note,
 }
 
@@ -63,9 +63,7 @@ impl ExplorerRowData {
             display_name: folder.name.clone(),
             path: folder.path.clone(),
             badge: String::new(),
-            kind: ExplorerRowKind::Folder {
-                expanded: folder.expanded,
-            },
+            kind: ExplorerRowKind::Folder,
         }
     }
 
@@ -88,7 +86,7 @@ impl ExplorerRowData {
 
     fn selection(&self) -> ExplorerSelection {
         match self.kind {
-            ExplorerRowKind::Folder { .. } => ExplorerSelection::Folder {
+            ExplorerRowKind::Folder => ExplorerSelection::Folder {
                 path: self.path.clone(),
             },
             ExplorerRowKind::Note => ExplorerSelection::Note {
@@ -175,13 +173,13 @@ fn note_type_indicator(type_badge: Option<&str>) -> (String, String) {
 fn note_selection_request(row: &ExplorerRowData) -> Option<String> {
     match row.kind {
         ExplorerRowKind::Note => Some(row.path.clone()),
-        ExplorerRowKind::Folder { .. } => None,
+        ExplorerRowKind::Folder => None,
     }
 }
 
 fn folder_toggle_request(row: &ExplorerRowData, expanded: bool) -> Option<(String, bool)> {
     match row.kind {
-        ExplorerRowKind::Folder { .. } => Some((row.path.clone(), expanded)),
+        ExplorerRowKind::Folder => Some((row.path.clone(), expanded)),
         ExplorerRowKind::Note => None,
     }
 }
@@ -467,7 +465,7 @@ fn set_folder_expanded_internal(
     let Some(data) = row_data_from_tree_list_row(&row) else {
         return false;
     };
-    if !matches!(data.kind, ExplorerRowKind::Folder { .. }) {
+    if !matches!(data.kind, ExplorerRowKind::Folder) {
         return false;
     }
     if row.is_expanded() == expanded {
@@ -499,7 +497,7 @@ fn observe_visible_rows(handles: &ExplorerHandles) {
         let Some(data) = row_data_from_tree_list_row(&row) else {
             continue;
         };
-        if !matches!(data.kind, ExplorerRowKind::Folder { .. }) {
+        if !matches!(data.kind, ExplorerRowKind::Folder) {
             continue;
         }
 
@@ -541,6 +539,15 @@ fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
     }
 }
 
+fn should_restore_tree_selection(
+    current_selection: Option<&ExplorerSelection>,
+    current_position: u32,
+    target_position: u32,
+    target_selection: &ExplorerSelection,
+) -> bool {
+    current_selection != Some(target_selection) || current_position != target_position
+}
+
 fn select_tree_item(handles: &ExplorerHandles, selection: &ExplorerSelection) -> bool {
     for path in selection_expansion_paths(selection) {
         let _ = set_folder_expanded_internal(handles, &path, true, false);
@@ -552,8 +559,8 @@ fn select_tree_item(handles: &ExplorerHandles, selection: &ExplorerSelection) ->
     };
 
     let current = handles.selected_item.borrow().clone();
-    let selection_changed = current.as_ref() != Some(selection);
-    if !selection_changed {
+    let current_position = handles.selection_model.selected();
+    if !should_restore_tree_selection(current.as_ref(), current_position, position, selection) {
         *handles.selected_item.borrow_mut() = Some(selection.clone());
         emit_selection_changed(&handles.on_selection_changed, Some(selection.clone()));
         return true;
@@ -750,7 +757,7 @@ fn bind_factory_row(list_item: &gtk::ListItem) {
     };
     icon.set_icon_name(Some(&data.icon_name));
     label.set_label(&data.display_name);
-    expander.set_hide_expander(!matches!(data.kind, ExplorerRowKind::Folder { .. }));
+    expander.set_hide_expander(!matches!(data.kind, ExplorerRowKind::Folder));
 }
 
 impl ExplorerView {
@@ -1131,9 +1138,35 @@ mod tests {
                 display_name: "Projects".to_string(),
                 path: "notes/projects".to_string(),
                 badge: String::new(),
-                kind: ExplorerRowKind::Folder { expanded: true },
+                kind: ExplorerRowKind::Folder,
             }
         );
+    }
+
+    #[test]
+    fn unchanged_selection_still_reselects_after_tree_reload() {
+        let selection = ExplorerSelection::Note {
+            path: "notes/example.md".to_string(),
+        };
+
+        assert!(should_restore_tree_selection(
+            Some(&selection),
+            gtk::INVALID_LIST_POSITION,
+            3,
+            &selection
+        ));
+        assert!(should_restore_tree_selection(
+            Some(&selection),
+            1,
+            3,
+            &selection
+        ));
+        assert!(!should_restore_tree_selection(
+            Some(&selection),
+            3,
+            3,
+            &selection
+        ));
     }
 
     #[test]

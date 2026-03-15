@@ -21,6 +21,7 @@
 
 - Start with an inventory so the warning set is explicit before changing code.
 - Keep explorer migration behavior-first: preserve rendering, selection, expansion persistence, and mutation refresh semantics.
+- Preserve visible row selection across explorer tree reloads; the GTK selection model may be reset even when the logical selected path stays the same.
 - Prefer current supported GTK/libadwaita APIs over custom workaround layers.
 - Review-complete delivery should leave `cargo check` free of GTK/libadwaita deprecation warnings from repository code.
 

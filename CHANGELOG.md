@@ -6,6 +6,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Fixed
 
+- Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
 - Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.
 - Centralize the GTK socket runtime contract so the CLI, client defaults, tests, and README all use the canonical `.../knot/knotd.sock` path.
 - Generate the CLI default-socket help text from the shared runtime-contract definition so path help cannot drift from runtime behavior.
