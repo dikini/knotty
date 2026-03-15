@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** implement the settings and maintenance surface required for GTK parity without coupling it tightly to unrelated shell or editor code.
+**Goal:** implement the settings and maintenance surface required for GTK parity, with left-pane section navigation and explicit separation between daemon-backed vault settings and local app preferences.
 
-**Architecture:** build a dedicated settings view module with data-driven sections and small async loaders, keeping shell integration limited to view routing and inspector-mode selection.
+**Architecture:** build a dedicated settings view module with data-driven sections and small async loaders, keep the left context pane as the settings section navigator, render one section at a time in the main pane, and persist app-level preferences in `~/.config/knot/knotty.toml`.
 
 **Tech Stack:** Rust, gtk4, libadwaita, cargo test
 
@@ -16,18 +16,23 @@
 - Read the local references: `docs/reference/settings-behavior.md`, `docs/reference/shell-behavior.md`, and `docs/reference/knotd-protocol.md`
 - Keep the settings surface modular and section-based.
 - Do not mix maintenance actions into unrelated editor or shell modules.
+- Do not use GTK toolkit state as a second persistence system for app preferences; `~/.config/knot/knotty.toml` is the app-preferences source of truth.
 
 ## Delivery Notes
 
 - Keep settings section definitions in one place.
 - Separate data loading from widget construction where practical.
 - Reindex and other maintenance actions must show explicit progress/result states.
+- Keep the right inspector hidden in settings mode for this slice.
 
 ## Rust Guidance For This Slice
 
 - Keep vault-settings patch construction explicit and typed.
 - Avoid ad hoc JSON manipulation in many places; centralize it.
 - Treat plugin and maintenance failures as user-visible states.
+- Keep the split explicit:
+  - vault settings -> `knotd`
+  - app preferences -> `~/.config/knot/knotty.toml`
 
 ## knotd Calls Used By This Slice
 
@@ -89,7 +94,7 @@ pub struct VaultEditorSettings {
 
 | ID | Task | Depends |
 |---|---|---|
-| GTSM-001 | Add settings section model and routing tests | - |
+| GTSM-001 | Add settings section model and left-pane routing tests | - |
 | GTSM-002 | Implement vault settings load/update flow | GTSM-001 |
 | GTSM-003 | Implement plugin list and refresh flow | GTSM-001 |
 | GTSM-004 | Implement maintenance actions and feedback | GTSM-001 |
@@ -100,9 +105,9 @@ pub struct VaultEditorSettings {
 
 | Small ID | Parent | Action | Primary Files | Do Not Touch |
 |---|---|---|---|---|
-| GTSM-001A | GTSM-001 | Add failing settings-view activation test | `src/ui/settings_view.rs`, `src/ui/window.rs` | editor files |
-| GTSM-001B | GTSM-001 | Add failing section-routing test | `src/ui/settings_view.rs` | graph files |
-| GTSM-001C | GTSM-001 | Implement section model | `src/ui/settings_view.rs`, `src/ui/mod.rs` | `src/client/*` |
+| GTSM-001A | GTSM-001 | Add failing settings-view activation test | `src/ui/settings_view.rs`, `src/ui/window.rs`, `src/ui/context_panel.rs` | editor files |
+| GTSM-001B | GTSM-001 | Add failing left-pane section-routing test | `src/ui/settings_view.rs`, `src/ui/context_panel.rs` | graph files |
+| GTSM-001C | GTSM-001 | Implement section model and settings context list | `src/ui/settings_view.rs`, `src/ui/context_panel.rs`, `src/ui/mod.rs` | `src/client/*` |
 | GTSM-002A | GTSM-002 | Add failing settings-load test | `src/ui/settings_view.rs` | plugin/maintenance sections |
 | GTSM-002B | GTSM-002 | Add failing patch-update test | `src/ui/settings_view.rs` | plugin/maintenance sections |
 | GTSM-002C | GTSM-002 | Implement vault settings form/view model | `src/ui/settings_view.rs` | shell state |
@@ -112,9 +117,9 @@ pub struct VaultEditorSettings {
 | GTSM-004A | GTSM-004 | Add failing reindex loading test | `src/ui/settings_view.rs` | plugin section |
 | GTSM-004B | GTSM-004 | Add failing reindex success/error tests | `src/ui/settings_view.rs` | plugin section |
 | GTSM-004C | GTSM-004 | Implement maintenance section | `src/ui/settings_view.rs` | shell state |
-| GTSM-005A | GTSM-005 | Add failing label-visibility preference test | `src/ui/settings_view.rs`, `src/ui/shell_state.rs` | vault settings |
-| GTSM-005B | GTSM-005 | Add failing panel-width preference test | `src/ui/settings_view.rs`, `src/ui/shell_state.rs` | vault settings |
-| GTSM-005C | GTSM-005 | Implement app-level preference persistence | `src/ui/settings_view.rs`, `src/ui/shell_state.rs` | daemon settings |
+| GTSM-005A | GTSM-005 | Add failing label-visibility preference test | `src/ui/settings_view.rs`, `src/ui/shell_state.rs`, `src/config/*` | vault settings |
+| GTSM-005B | GTSM-005 | Add failing panel-width preference test | `src/ui/settings_view.rs`, `src/ui/shell_state.rs`, `src/config/*` | vault settings |
+| GTSM-005C | GTSM-005 | Implement app-level preference persistence in `knotty.toml` | `src/ui/settings_view.rs`, `src/ui/shell_state.rs`, `src/config/*` | daemon settings |
 | GTSM-006A | GTSM-006 | Run slice verification | repo-wide | - |
 | GTSM-006B | GTSM-006 | Fix slice-only regressions | touched files only | unrelated modules |
 
@@ -122,13 +127,14 @@ pub struct VaultEditorSettings {
 
 **Files**
 - Create or modify: `/home/dikini/Projects/knot-gtk/src/ui/settings_view.rs`
+- Modify: `/home/dikini/Projects/knot-gtk/src/ui/context_panel.rs`
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/mod.rs`
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/window.rs`
 
 **Steps**
-1. Write failing tests for section routing and settings-view activation.
+1. Write failing tests for left-pane section routing and settings-view activation.
 2. Confirm red.
-3. Implement the minimal settings section model.
+3. Implement the minimal settings section model and left-pane settings list.
 4. Re-run targeted tests until green.
 5. Review for duplicated section labels or IDs.
 
@@ -138,6 +144,7 @@ pub struct VaultEditorSettings {
 pub enum SettingsSection {
     General,
     Appearance,
+    Controls,
     Plugins,
     Vault,
     Maintenance,
@@ -205,6 +212,7 @@ fn reindex_success_updates_status_message() {
 
 **Files**
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/settings_view.rs`
+- Create or modify: `/home/dikini/Projects/knot-gtk/src/config/knotty_config.rs`
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/shell_state.rs`
 
 **Steps**
@@ -217,6 +225,7 @@ fn reindex_success_updates_status_message() {
 **Advice**
 
 - App preferences belong to GTK shell state.
+- App preferences persist in `~/.config/knot/knotty.toml`.
 - Vault settings belong to daemon-backed configuration.
 - Do not mix them in the same save path.
 
@@ -240,9 +249,11 @@ cargo check
 ## Review Checklist
 
 - Section routing is explicit
+- Left settings navigation lives in the context pane, not a duplicate main-pane list
 - Vault settings patch flow is safe
 - Plugin and maintenance states are visible
-- App-level preferences stay separate from vault settings
+- App-level preferences stay separate from vault settings and persist in `~/.config/knot/knotty.toml`
+- Inspector stays hidden in settings mode
 - JSON patch construction is centralized and tested
 
 ## Commit Gate

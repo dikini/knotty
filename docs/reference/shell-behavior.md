@@ -93,4 +93,4 @@ pub struct SearchResult {
 - escape in search clears search query and results state
 - no-vault startup does not show note editor chrome
 - result activation reuses shared note loading
-- settings tool switches inspector to settings mode
+- settings tool hides the inspector and routes section navigation into the left context pane

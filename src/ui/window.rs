@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::client::{GraphLayout, KnotdClient, NoteData};
+use crate::config::knotty_config::{load_knotty_config, ColorSchemePreference, KnottyConfig};
 use crate::ui::async_bridge;
 use crate::ui::context_panel::{ContextPanel, GraphPanelEvent, GraphPanelState};
 use crate::ui::editor::NoteEditor;
@@ -15,6 +16,7 @@ use crate::ui::graph_view::{
 use crate::ui::inspector_rail::InspectorRail;
 use crate::ui::request_state::RequestState;
 use crate::ui::search_view::SearchView;
+use crate::ui::settings_view::SettingsView;
 use crate::ui::shell_state::{InspectorMode, ShellState};
 use crate::ui::tool_rail::{ToolMode, ToolRail};
 
@@ -68,6 +70,7 @@ pub struct KnotWindow {
     editor: Rc<NoteEditor>,
     search_view: Rc<SearchView>,
     graph_view: Rc<GraphView>,
+    settings_view: Rc<SettingsView>,
     content_stack: gtk::Stack,
     current_note: Rc<RefCell<Option<NoteData>>>,
     note_load_state: Rc<RefCell<NoteLoadState>>,
@@ -236,11 +239,27 @@ fn apply_shell_state(
             inspector_rail.set_open(true);
             inspector_rail.set_mode("details");
         }
-        InspectorMode::Settings => {
-            inspector_rail.set_open(true);
-            inspector_rail.set_mode("settings");
-        }
     }
+}
+
+fn apply_knotty_config(
+    config: &KnottyConfig,
+    context_panel: &ContextPanel,
+    inspector_rail: &InspectorRail,
+) {
+    context_panel
+        .widget()
+        .set_width_request(config.appearance.context_panel_width);
+    inspector_rail
+        .widget()
+        .set_width_request(config.appearance.inspector_width);
+
+    let color_scheme = match config.appearance.color_scheme {
+        ColorSchemePreference::System => libadwaita::ColorScheme::Default,
+        ColorSchemePreference::Light => libadwaita::ColorScheme::ForceLight,
+        ColorSchemePreference::Dark => libadwaita::ColorScheme::ForceDark,
+    };
+    libadwaita::StyleManager::default().set_color_scheme(color_scheme);
 }
 
 fn apply_startup_state(state: &StartupState, handles: &StartupRefreshHandles) {
@@ -710,6 +729,10 @@ impl KnotWindow {
     pub fn with_client(app: &libadwaita::Application, client: KnotdClient) -> Self {
         let client = Rc::new(client);
         let startup_state = determine_startup_state(client.as_ref());
+        let initial_config = load_knotty_config().unwrap_or_else(|error| {
+            log::error!("Failed to load knotty config: {}", error);
+            KnottyConfig::default()
+        });
 
         // Create window
         let window = libadwaita::ApplicationWindow::builder()
@@ -858,16 +881,11 @@ impl KnotWindow {
         let graph_view = Rc::new(GraphView::new());
         content_stack.add_titled(graph_view.widget(), Some("graph"), "Graph");
 
-        // Settings view (placeholder)
-        let settings_view = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .build();
-        let settings_label = gtk::Label::builder()
-            .label("Settings view coming soon")
-            .vexpand(true)
-            .build();
-        settings_view.append(&settings_label);
-        content_stack.add_titled(&settings_view, Some("settings"), "Settings");
+        let settings_view = Rc::new(SettingsView::new(
+            Rc::clone(&client),
+            initial_config.clone(),
+        ));
+        content_stack.add_titled(settings_view.widget(), Some("settings"), "Settings");
 
         main_box.append(&content_stack);
 
@@ -894,12 +912,19 @@ impl KnotWindow {
             editor,
             search_view,
             graph_view,
+            settings_view,
             content_stack,
             current_note: Rc::new(RefCell::new(None)),
             note_load_state: Rc::new(RefCell::new(RequestState::idle())),
             note_load_generation: Rc::new(RefCell::new(0)),
             shell_state: Rc::new(RefCell::new(ShellState::default())),
         };
+
+        apply_knotty_config(
+            &initial_config,
+            win.context_panel.as_ref(),
+            &win.inspector_rail,
+        );
 
         apply_startup_state(
             &startup_state,
@@ -950,6 +975,34 @@ impl KnotWindow {
                 &inspector_rail,
                 search_view.as_ref(),
             );
+        });
+        self.window.add_action(&action);
+
+        let action = gio::SimpleAction::new("open-settings", None);
+        let startup_state = Rc::clone(&self.startup_state);
+        let shell_state = Rc::clone(&self.shell_state);
+        let tool_rail = self.tool_rail.clone();
+        let context_panel = Rc::clone(&self.context_panel);
+        let content_stack = self.content_stack.clone();
+        let inspector_rail = self.inspector_rail.clone();
+        let search_view = Rc::clone(&self.search_view);
+        let settings_view = Rc::clone(&self.settings_view);
+        action.connect_activate(move |_action, _param| {
+            if !startup_shell_chrome_visible(&startup_state.borrow()) {
+                return;
+            }
+            settings_view.refresh();
+            let mut shell_state = shell_state.borrow_mut();
+            shell_state.select_tool(ToolMode::Settings);
+            apply_shell_state(
+                &shell_state,
+                &tool_rail,
+                context_panel.as_ref(),
+                &content_stack,
+                &inspector_rail,
+                search_view.as_ref(),
+            );
+            context_panel.set_settings_section(settings_view.selected_section());
         });
         self.window.add_action(&action);
 
@@ -1052,24 +1105,17 @@ impl KnotWindow {
         });
 
         // Settings button
-        let content_stack = self.content_stack.clone();
-        let inspector_rail = self.inspector_rail.clone();
-        let tool_rail = self.tool_rail.clone();
-        let context_panel_ref = Rc::clone(&self.context_panel);
-        let search_view = Rc::clone(&self.search_view);
-        let shell_state = Rc::clone(&self.shell_state);
+        let window = self.window.clone();
         self.tool_rail.connect_settings(move || {
-            let mut shell_state = shell_state.borrow_mut();
-            shell_state.select_tool(ToolMode::Settings);
-            apply_shell_state(
-                &shell_state,
-                &tool_rail,
-                context_panel_ref.as_ref(),
-                &content_stack,
-                &inspector_rail,
-                search_view.as_ref(),
-            );
+            let _ = gtk::prelude::WidgetExt::activate_action(&window, "win.open-settings", None);
         });
+
+        let context_panel = Rc::clone(&self.context_panel);
+        let inspector_rail = self.inspector_rail.clone();
+        self.settings_view
+            .connect_preferences_changed(move |config| {
+                apply_knotty_config(&config, context_panel.as_ref(), &inspector_rail);
+            });
 
         let note_switch_prompt = NoteSwitchPromptHandles {
             window: self.window.clone(),
@@ -1121,6 +1167,14 @@ impl KnotWindow {
         self.context_panel.connect_selection_cleared(move || {
             clear_active_note(&note_session_for_clear);
         });
+
+        let settings_view = Rc::clone(&self.settings_view);
+        let context_panel = Rc::clone(&self.context_panel);
+        self.context_panel
+            .connect_settings_section_selected(move |section| {
+                settings_view.set_section(section);
+                context_panel.set_settings_section(section);
+            });
 
         self.graph_view.connect_node_selected({
             let graph_session = graph_session.clone();
@@ -1351,7 +1405,7 @@ mod tests {
         shell_state.select_tool(ToolMode::Settings);
 
         assert_eq!(content_child_name_for_shell(&shell_state), "settings");
-        assert_eq!(shell_state.inspector_mode(), InspectorMode::Settings);
+        assert_eq!(shell_state.inspector_mode(), InspectorMode::Hidden);
     }
 
     #[test]

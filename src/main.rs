@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 mod cli;
 mod client;
+mod config;
 mod runtime_contract;
 mod ui;
 
@@ -27,6 +28,7 @@ const SEARCH_FOCUS_ACTION: &str = "win.focus-search";
 const SEARCH_FOCUS_ACCELS: &[&str] = &["<Control>k"];
 const SAVE_NOTE_ACTION: &str = "win.save-note";
 const SAVE_NOTE_ACCELS: &[&str] = &["<Control>s"];
+const OPEN_SETTINGS_ACTION: &str = "win.open-settings";
 
 fn load_css() {
     let css = include_str!("../data/style.css");
@@ -140,7 +142,17 @@ fn setup_actions(app: &libadwaita::Application) {
     let prefs_action = gio::SimpleAction::new("preferences", None);
     prefs_action.connect_activate(|_action, _param| {
         tracing::info!("Preferences action triggered");
-        show_preferences();
+        if let Some(app) = gtk::gio::Application::default() {
+            if let Some(app) = app.downcast_ref::<libadwaita::Application>() {
+                if let Some(window) = app.active_window() {
+                    let _ = gtk::prelude::WidgetExt::activate_action(
+                        &window,
+                        OPEN_SETTINGS_ACTION,
+                        None,
+                    );
+                }
+            }
+        }
     });
     app.add_action(&prefs_action);
 
@@ -173,10 +185,6 @@ fn setup_shortcuts(app: &libadwaita::Application) {
     app.set_accels_for_action(SEARCH_FOCUS_ACTION, SEARCH_FOCUS_ACCELS);
     app.set_accels_for_action(SAVE_NOTE_ACTION, SAVE_NOTE_ACCELS);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
-}
-
-fn show_preferences() {
-    // TODO: Show preferences dialog
 }
 
 fn show_about_dialog(app: &libadwaita::Application) {
@@ -215,5 +223,10 @@ mod tests {
     fn save_shortcut_is_bound_to_window_action() {
         assert_eq!(SAVE_NOTE_ACTION, "win.save-note");
         assert_eq!(SAVE_NOTE_ACCELS, &["<Control>s"]);
+    }
+
+    #[test]
+    fn preferences_action_targets_settings_window_action() {
+        assert_eq!(OPEN_SETTINGS_ACTION, "win.open-settings");
     }
 }

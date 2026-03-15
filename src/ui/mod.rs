@@ -9,6 +9,7 @@ pub mod inspector_rail;
 pub mod note_types;
 pub mod request_state;
 pub mod search_view;
+pub mod settings_view;
 pub mod shell_state;
 pub mod tool_rail;
 pub mod window;

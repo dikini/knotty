@@ -19,6 +19,8 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Added
 
+- Add the GTK settings slice with left-pane section navigation, hidden inspector behavior in settings mode, daemon-backed vault/plugin/maintenance sections, local app-preference persistence in `~/.config/knot/knotty.toml`, and a settings follow-up note file.
+- Add the GTK settings design note and tighten the settings spec/plan around left-pane section navigation, hidden inspector behavior, the `Controls` section, and `~/.config/knot/knotty.toml` as the app-preferences store.
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.
 - Expand GTK note DTOs to include runtime contract fields for mode availability, metadata, embeds, media, and request-state helpers for async UI flows.
 - Add a GTK-safe background bridge and migrate note loading to request-state-driven async execution.
@@ -39,6 +41,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Changed
 
+- Route the existing Preferences action into the real GTK settings surface instead of a dead placeholder path.
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
 - Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
