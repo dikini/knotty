@@ -7,6 +7,8 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 ### Added
 
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.
+- Expand GTK note DTOs to include runtime contract fields for mode availability, metadata, embeds, media, and request-state helpers for async UI flows.
+- Add a GTK-safe background bridge and migrate note loading to request-state-driven async execution.
 
 ### Changed
 

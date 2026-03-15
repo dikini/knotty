@@ -4,10 +4,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::client::{KnotdClient, NoteData};
+use crate::ui::async_bridge;
 use crate::ui::context_panel::ContextPanel;
 use crate::ui::editor::NoteEditor;
 use crate::ui::inspector_rail::InspectorRail;
+use crate::ui::request_state::RequestState;
 use crate::ui::tool_rail::{ToolMode, ToolRail};
+
+type NoteLoadState = RequestState<NoteData, String>;
+type NoteLoadResult = Result<NoteData, String>;
 
 pub struct KnotWindow {
     window: libadwaita::ApplicationWindow,
@@ -18,6 +23,42 @@ pub struct KnotWindow {
     editor: Rc<NoteEditor>,
     content_stack: gtk::Stack,
     current_note: RefCell<Option<NoteData>>,
+    note_load_state: Rc<RefCell<NoteLoadState>>,
+    note_load_generation: Rc<RefCell<u64>>,
+}
+
+fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadResult) {
+    *state.borrow_mut() = match result {
+        Ok(note) => RequestState::success(note.clone()),
+        Err(error) => RequestState::error(error.clone()),
+    };
+}
+
+fn begin_note_load_with_dispatch<Dispatch, OnResult>(
+    client: KnotdClient,
+    path: String,
+    state: Rc<RefCell<NoteLoadState>>,
+    generation: u64,
+    active_generation: Rc<RefCell<u64>>,
+    dispatch: Dispatch,
+    on_result: OnResult,
+) where
+    Dispatch: FnOnce(Box<dyn FnOnce() -> NoteLoadResult + Send>, Box<dyn FnOnce(NoteLoadResult)>),
+    OnResult: FnOnce(NoteLoadResult) + 'static,
+{
+    *state.borrow_mut() = RequestState::loading();
+
+    let state_for_ui = Rc::clone(&state);
+    dispatch(
+        Box::new(move || client.get_note(&path).map_err(|error| error.to_string())),
+        Box::new(move |result| {
+            if *active_generation.borrow() != generation {
+                return;
+            }
+            update_note_load_state(&state_for_ui, &result);
+            on_result(result);
+        }),
+    );
 }
 
 impl KnotWindow {
@@ -166,6 +207,8 @@ impl KnotWindow {
             editor,
             content_stack,
             current_note: RefCell::new(None),
+            note_load_state: Rc::new(RefCell::new(RequestState::idle())),
+            note_load_generation: Rc::new(RefCell::new(0)),
         };
 
         // Connect signals
@@ -220,6 +263,8 @@ impl KnotWindow {
         let client = Rc::clone(&self.client);
         let editor_ref = Rc::clone(&self.editor);
         let current_note = self.current_note.clone();
+        let note_load_state = Rc::clone(&self.note_load_state);
+        let note_load_generation = Rc::clone(&self.note_load_generation);
         let window = self.window.clone();
         let content_stack = self.content_stack.clone();
 
@@ -227,24 +272,45 @@ impl KnotWindow {
             .borrow()
             .connect_note_selected(move |path| {
                 log::info!("Loading note: {}", path);
+                window.set_title(Some("Loading note... — Knot"));
+                let load_path = path.to_string();
+                let log_path = load_path.clone();
+                let generation = {
+                    let mut current = note_load_generation.borrow_mut();
+                    *current += 1;
+                    *current
+                };
 
-                match client.get_note(path) {
-                    Ok(note) => {
-                        // Update window title
-                        window.set_title(Some(&format!("{} — Knot", note.title)));
-
-                        // Load into editor
-                        editor_ref.load_note(&note);
-
-                        *current_note.borrow_mut() = Some(note);
-
-                        // Show editor view
-                        content_stack.set_visible_child_name("editor");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to load note {}: {}", path, e);
-                    }
-                }
+                begin_note_load_with_dispatch(
+                    client.as_ref().clone(),
+                    load_path,
+                    Rc::clone(&note_load_state),
+                    generation,
+                    Rc::clone(&note_load_generation),
+                    |work, ui| {
+                        async_bridge::run_background(move || work()).attach_local(move |result| {
+                            ui(result);
+                        });
+                    },
+                    {
+                        let window = window.clone();
+                        let editor_ref = Rc::clone(&editor_ref);
+                        let current_note = current_note.clone();
+                        let content_stack = content_stack.clone();
+                        move |result| match result {
+                            Ok(note) => {
+                                window.set_title(Some(&format!("{} — Knot", note.title)));
+                                editor_ref.load_note(&note);
+                                *current_note.borrow_mut() = Some(note);
+                                content_stack.set_visible_child_name("editor");
+                            }
+                            Err(error) => {
+                                window.set_title(Some("Failed to load note — Knot"));
+                                log::error!("Failed to load note {}: {}", log_path, error);
+                            }
+                        }
+                    },
+                );
             });
 
         // Inspector close
@@ -266,4 +332,139 @@ impl KnotWindow {
 // Helper module for logging
 mod log {
     pub use tracing::{error, info, warn};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::request_state::RequestState;
+    use std::cell::Cell;
+
+    fn sample_note() -> NoteData {
+        NoteData {
+            id: "note-1".to_string(),
+            path: "notes/example.md".to_string(),
+            title: "Example".to_string(),
+            content: "# Example".to_string(),
+            created_at: 1,
+            modified_at: 2,
+            word_count: 2,
+            headings: Vec::new(),
+            backlinks: Vec::new(),
+            note_type: Some(crate::client::NoteType::Markdown),
+            available_modes: None,
+            metadata: None,
+            embed: None,
+            media: None,
+            type_badge: Some("MD".to_string()),
+            is_dimmed: false,
+        }
+    }
+
+    #[test]
+    fn note_load_uses_dispatcher_and_updates_success_state() {
+        let state = Rc::new(RefCell::new(RequestState::idle()));
+        let generation = Rc::new(RefCell::new(1_u64));
+        let dispatched = Rc::new(Cell::new(false));
+        let note = sample_note();
+
+        begin_note_load_with_dispatch(
+            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            "notes/example.md".to_string(),
+            Rc::clone(&state),
+            1,
+            Rc::clone(&generation),
+            {
+                let dispatched = Rc::clone(&dispatched);
+                let note = note.clone();
+                move |_work, ui| {
+                    dispatched.set(true);
+                    ui(Ok(note));
+                }
+            },
+            |_| {},
+        );
+
+        assert!(dispatched.get());
+        assert_eq!(*state.borrow(), RequestState::Success(note));
+    }
+
+    #[test]
+    fn note_load_updates_error_state_without_clearing_previous_note() {
+        let state = Rc::new(RefCell::new(RequestState::success(sample_note())));
+        let generation = Rc::new(RefCell::new(1_u64));
+
+        begin_note_load_with_dispatch(
+            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            "notes/missing.md".to_string(),
+            Rc::clone(&state),
+            1,
+            Rc::clone(&generation),
+            move |_work, ui| {
+                ui(Err("daemon request failed".to_string()));
+            },
+            |_| {},
+        );
+
+        assert_eq!(
+            *state.borrow(),
+            RequestState::Error("daemon request failed".to_string())
+        );
+    }
+
+    #[test]
+    fn stale_note_load_result_is_ignored_when_newer_selection_exists() {
+        let first_state = Rc::new(RefCell::new(RequestState::idle()));
+        let second_state = Rc::new(RefCell::new(RequestState::idle()));
+        let generation = Rc::new(RefCell::new(2_u64));
+        let stale_result: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let fresh_result: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let first_note = sample_note();
+        let mut second_note = sample_note();
+        second_note.title = "Second".to_string();
+
+        begin_note_load_with_dispatch(
+            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            "notes/first.md".to_string(),
+            Rc::clone(&first_state),
+            1,
+            Rc::clone(&generation),
+            {
+                let stale_result = Rc::clone(&stale_result);
+                let first_note = first_note.clone();
+                move |_work, ui| {
+                    *stale_result.borrow_mut() = Some(Box::new(move || ui(Ok(first_note))));
+                }
+            },
+            |_| panic!("stale result should not update the UI"),
+        );
+
+        begin_note_load_with_dispatch(
+            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            "notes/second.md".to_string(),
+            Rc::clone(&second_state),
+            2,
+            Rc::clone(&generation),
+            {
+                let fresh_result = Rc::clone(&fresh_result);
+                let second_note = second_note.clone();
+                move |_work, ui| {
+                    *fresh_result.borrow_mut() = Some(Box::new(move || ui(Ok(second_note))));
+                }
+            },
+            |_| {},
+        );
+
+        fresh_result
+            .borrow_mut()
+            .take()
+            .expect("fresh result should be captured")();
+        stale_result
+            .borrow_mut()
+            .take()
+            .expect("stale result should be captured")();
+
+        assert_eq!(*first_state.borrow(), RequestState::Loading);
+        assert_eq!(*second_state.borrow(), RequestState::Success(second_note));
+    }
 }
