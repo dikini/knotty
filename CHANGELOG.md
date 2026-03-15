@@ -17,3 +17,5 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 ### Fixed
 
 - Match the CLI default socket path with the documented `XDG_RUNTIME_DIR/knot/knot.sock` contract so the baseline Rust test suite passes.
+- Align the GTK shell startup and routing implementation with the shell contract by adding a real search content surface, applying initial shell state on vault-open startup, and wiring actionable startup controls.
+- Replace deprecated GTK file chooser usage in the shell startup flow with `gtk::FileDialog` and document the project policy against introducing deprecated GTK APIs.

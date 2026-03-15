@@ -7,7 +7,7 @@
 - Parent: `SYS-GTK-PARITY-001`
 - Concerns: [CAP, REL, UX]
 - Created: `2026-03-14`
-- Updated: `2026-03-14`
+- Updated: `2026-03-15`
 
 ## Purpose
 Turn the GTK prototype window into a real application shell with startup states, tool/context/inspector behavior, and search UX that matches the functional capabilities of the Tauri app.
@@ -49,6 +49,10 @@ Turn the GTK prototype window into a real application shell with startup states,
 
 **FR-5**: Inspector behavior
 - Inspector rail must support at least `details` and `settings` modes, even if details content stays minimal at first.
+
+**FR-6**: Supported GTK APIs only
+- Shell startup and navigation work must not introduce deprecated GTK or libadwaita APIs when a supported replacement exists in the current baseline.
+- File and folder selection flows must use the non-deprecated async dialog API for the configured GTK baseline.
 
 ## Design Decisions
 

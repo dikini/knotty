@@ -2,11 +2,8 @@ use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// use tracing as log;
-
 use crate::client::KnotdClient;
 use crate::ui::explorer::ExplorerView;
-use crate::ui::search_view::SearchView;
 use crate::ui::tool_rail::ToolMode;
 
 pub struct ContextPanel {
@@ -14,8 +11,6 @@ pub struct ContextPanel {
     mode: RefCell<ToolMode>,
     stack: gtk::Stack,
     explorer: ExplorerView,
-    search_view: SearchView,
-    client: Rc<KnotdClient>,
     on_note_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
     on_mode_changed: Rc<RefCell<Option<Box<dyn Fn(ToolMode)>>>>,
 }
@@ -60,8 +55,19 @@ impl ContextPanel {
         notes_view.append(&new_note_btn);
         notes_view.append(explorer.widget());
 
-        // Search view (proper search with debouncing)
-        let search_view = SearchView::new(Rc::clone(&client));
+        let search_view = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(12)
+            .build();
+        search_view.append(
+            &gtk::Label::builder()
+                .label("Search is shown in the main panel.")
+                .wrap(true)
+                .css_classes(vec!["dim-label".to_string()])
+                .build(),
+        );
 
         // Graph view (placeholder)
         let graph_view = gtk::Box::builder()
@@ -76,10 +82,25 @@ impl ContextPanel {
             .build();
         graph_view.append(&graph_label);
 
+        let settings_view = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(12)
+            .build();
+        settings_view.append(
+            &gtk::Label::builder()
+                .label("Settings context is shown in the main panel.")
+                .wrap(true)
+                .css_classes(vec!["dim-label".to_string()])
+                .build(),
+        );
+
         // Add to stack
         stack.add_titled(&notes_view, Some("notes"), "Notes");
-        stack.add_titled(search_view.widget(), Some("search"), "Search");
+        stack.add_titled(&search_view, Some("search"), "Search");
         stack.add_titled(&graph_view, Some("graph"), "Graph");
+        stack.add_titled(&settings_view, Some("settings"), "Settings");
 
         widget.append(&header);
         widget.append(&stack);
@@ -96,21 +117,11 @@ impl ContextPanel {
             }
         });
 
-        // Wire up search result selection
-        let on_note_selected_clone = Rc::clone(&on_note_selected);
-        search_view.connect_result_selected(move |path| {
-            if let Some(ref cb) = *on_note_selected_clone.borrow() {
-                cb(path);
-            }
-        });
-
         let panel = Self {
             widget,
             mode: RefCell::new(ToolMode::Notes),
             stack,
             explorer,
-            search_view,
-            client,
             on_note_selected,
             on_mode_changed,
         };
@@ -128,6 +139,7 @@ impl ContextPanel {
             ToolMode::Notes => ("Notes", "notes"),
             ToolMode::Search => ("Search", "search"),
             ToolMode::Graph => ("Graph", "graph"),
+            ToolMode::Settings => ("Settings", "settings"),
         };
 
         // Update header label
@@ -143,9 +155,7 @@ impl ContextPanel {
             ToolMode::Notes => {
                 self.explorer.refresh();
             }
-            ToolMode::Search => {
-                self.search_view.grab_focus();
-            }
+            ToolMode::Settings => {}
             _ => {}
         }
 

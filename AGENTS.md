@@ -49,3 +49,8 @@ Default flow for non-trivial work:
 
 - Every behavior or workflow change must include verification evidence.
 - If verification cannot run, document why and what residual risk remains.
+
+## GTK API Policy
+
+- Do not introduce new uses of deprecated GTK or libadwaita APIs when a supported replacement exists in the current project baseline.
+- When touching code that already relies on deprecated GTK APIs, prefer migrating that usage as part of the change if the replacement stays within the slice's scope.

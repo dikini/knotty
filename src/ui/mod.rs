@@ -8,6 +8,7 @@ pub mod explorer;
 pub mod inspector_rail;
 pub mod request_state;
 pub mod search_view;
+pub mod shell_state;
 pub mod tool_rail;
 pub mod window;
 
