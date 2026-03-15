@@ -36,7 +36,9 @@ pub struct KnotWindow {
     tool_rail: ToolRail,
     context_panel: Rc<RefCell<ContextPanel>>,
     inspector_rail: InspectorRail,
+    startup_state: Rc<RefCell<StartupState>>,
     vault_label: gtk::Label,
+    daemon_detail_label: gtk::Label,
     retry_startup_btn: gtk::Button,
     open_vault_btn: gtk::Button,
     create_vault_btn: gtk::Button,
@@ -83,6 +85,14 @@ fn startup_header_text(state: &StartupState) -> String {
         StartupState::NoVault => "No vault open".to_string(),
         StartupState::VaultOpen { name: Some(name) } => format!("Connected to vault: {name}"),
         StartupState::VaultOpen { name: None } => "Connected to vault".to_string(),
+    }
+}
+
+fn startup_detail_text(state: &StartupState) -> String {
+    match state {
+        StartupState::DaemonUnavailable { message } => message.clone(),
+        StartupState::NoVault => "Open or create a vault to start browsing notes.".to_string(),
+        StartupState::VaultOpen { .. } => String::new(),
     }
 }
 
@@ -171,8 +181,10 @@ fn apply_shell_state(
 
 fn apply_startup_state(
     state: &StartupState,
+    startup_state_cell: &RefCell<StartupState>,
     shell_state: &ShellState,
     vault_label: &gtk::Label,
+    daemon_detail_label: &gtk::Label,
     retry_startup_btn: &gtk::Button,
     open_vault_btn: &gtk::Button,
     create_vault_btn: &gtk::Button,
@@ -182,7 +194,9 @@ fn apply_startup_state(
     inspector_rail: &InspectorRail,
     search_view: &SearchView,
 ) {
+    *startup_state_cell.borrow_mut() = state.clone();
     vault_label.set_label(&startup_header_text(state));
+    daemon_detail_label.set_label(&startup_detail_text(state));
     let startup_actions = startup_action_specs(state);
     retry_startup_btn.set_visible(startup_actions.contains(&StartupAction::RetryDaemon));
     open_vault_btn.set_visible(startup_actions.contains(&StartupAction::OpenVault));
@@ -210,8 +224,10 @@ fn apply_startup_state(
 
 fn refresh_startup_shell(
     client: &KnotdClient,
+    startup_state_cell: &RefCell<StartupState>,
     shell_state: &ShellState,
     vault_label: &gtk::Label,
+    daemon_detail_label: &gtk::Label,
     retry_startup_btn: &gtk::Button,
     open_vault_btn: &gtk::Button,
     create_vault_btn: &gtk::Button,
@@ -224,8 +240,10 @@ fn refresh_startup_shell(
     let startup_state = determine_startup_state(client);
     apply_startup_state(
         &startup_state,
+        startup_state_cell,
         shell_state,
         vault_label,
+        daemon_detail_label,
         retry_startup_btn,
         open_vault_btn,
         create_vault_btn,
@@ -498,19 +516,14 @@ impl KnotWindow {
                 .css_classes(vec!["title-3".to_string()])
                 .build(),
         );
-        let daemon_message = match &startup_state {
-            StartupState::DaemonUnavailable { message } => message.as_str(),
-            _ => "The daemon could not be reached.",
-        };
-        daemon_unavailable_view.append(
-            &gtk::Label::builder()
-                .label(daemon_message)
-                .css_classes(vec!["dim-label".to_string()])
-                .wrap(true)
-                .max_width_chars(48)
-                .justify(gtk::Justification::Center)
-                .build(),
-        );
+        let daemon_detail_label = gtk::Label::builder()
+            .label(&startup_detail_text(&startup_state))
+            .css_classes(vec!["dim-label".to_string()])
+            .wrap(true)
+            .max_width_chars(48)
+            .justify(gtk::Justification::Center)
+            .build();
+        daemon_unavailable_view.append(&daemon_detail_label);
         let retry_startup_btn = gtk::Button::builder()
             .label(startup_action_label(StartupAction::RetryDaemon))
             .build();
@@ -597,7 +610,9 @@ impl KnotWindow {
             tool_rail,
             context_panel,
             inspector_rail,
+            startup_state: Rc::new(RefCell::new(startup_state.clone())),
             vault_label,
+            daemon_detail_label,
             retry_startup_btn,
             open_vault_btn,
             create_vault_btn,
@@ -612,8 +627,10 @@ impl KnotWindow {
 
         apply_startup_state(
             &startup_state,
+            &win.startup_state,
             &win.shell_state.borrow(),
             &win.vault_label,
+            &win.daemon_detail_label,
             &win.retry_startup_btn,
             &win.open_vault_btn,
             &win.create_vault_btn,
@@ -632,7 +649,7 @@ impl KnotWindow {
 
     fn install_window_actions(&self) {
         let action = gio::SimpleAction::new("focus-search", None);
-        let client = Rc::clone(&self.client);
+        let startup_state = Rc::clone(&self.startup_state);
         let shell_state = Rc::clone(&self.shell_state);
         let tool_rail = self.tool_rail.clone();
         let context_panel = Rc::clone(&self.context_panel);
@@ -640,7 +657,7 @@ impl KnotWindow {
         let inspector_rail = self.inspector_rail.clone();
         let search_view = Rc::clone(&self.search_view);
         action.connect_activate(move |_action, _param| {
-            if !startup_allows_shell_navigation(&determine_startup_state(client.as_ref())) {
+            if !startup_allows_shell_navigation(&startup_state.borrow()) {
                 return;
             }
             let mut shell_state = shell_state.borrow_mut();
@@ -736,8 +753,10 @@ impl KnotWindow {
         let open_vault_btn = self.open_vault_btn.clone();
         let create_vault_btn = self.create_vault_btn.clone();
         let client = Rc::clone(&self.client);
+        let startup_state = Rc::clone(&self.startup_state);
         let shell_state = Rc::clone(&self.shell_state);
         let vault_label = self.vault_label.clone();
+        let daemon_detail_label = self.daemon_detail_label.clone();
         let tool_rail = self.tool_rail.clone();
         let context_panel_ref = Rc::clone(&self.context_panel);
         let content_stack = self.content_stack.clone();
@@ -746,8 +765,10 @@ impl KnotWindow {
         self.retry_startup_btn.connect_clicked(move |_| {
             refresh_startup_shell(
                 client.as_ref(),
+                startup_state.as_ref(),
                 &shell_state.borrow(),
                 &vault_label,
+                &daemon_detail_label,
                 &retry_startup_btn,
                 &open_vault_btn,
                 &create_vault_btn,
@@ -763,8 +784,10 @@ impl KnotWindow {
         let open_vault_btn = self.open_vault_btn.clone();
         let create_vault_btn = self.create_vault_btn.clone();
         let client = Rc::clone(&self.client);
+        let startup_state = Rc::clone(&self.startup_state);
         let shell_state = Rc::clone(&self.shell_state);
         let vault_label = self.vault_label.clone();
+        let daemon_detail_label = self.daemon_detail_label.clone();
         let tool_rail = self.tool_rail.clone();
         let context_panel_ref = Rc::clone(&self.context_panel);
         let content_stack = self.content_stack.clone();
@@ -773,8 +796,10 @@ impl KnotWindow {
         let window = self.window.clone();
         self.open_vault_btn.connect_clicked(move |_| {
             let client = Rc::clone(&client);
+            let startup_state = Rc::clone(&startup_state);
             let shell_state = Rc::clone(&shell_state);
             let vault_label = vault_label.clone();
+            let daemon_detail_label = daemon_detail_label.clone();
             let tool_rail = tool_rail.clone();
             let context_panel_ref = Rc::clone(&context_panel_ref);
             let content_stack = content_stack.clone();
@@ -789,8 +814,10 @@ impl KnotWindow {
                 }
                 refresh_startup_shell(
                     client.as_ref(),
+                    startup_state.as_ref(),
                     &shell_state.borrow(),
                     &vault_label,
+                    &daemon_detail_label,
                     &retry_startup_btn,
                     &open_vault_btn,
                     &create_vault_btn,
@@ -807,8 +834,10 @@ impl KnotWindow {
         let open_vault_btn = self.open_vault_btn.clone();
         let create_vault_btn = self.create_vault_btn.clone();
         let client = Rc::clone(&self.client);
+        let startup_state = Rc::clone(&self.startup_state);
         let shell_state = Rc::clone(&self.shell_state);
         let vault_label = self.vault_label.clone();
+        let daemon_detail_label = self.daemon_detail_label.clone();
         let tool_rail = self.tool_rail.clone();
         let context_panel_ref = Rc::clone(&self.context_panel);
         let content_stack = self.content_stack.clone();
@@ -817,8 +846,10 @@ impl KnotWindow {
         let window = self.window.clone();
         self.create_vault_btn.connect_clicked(move |_| {
             let client = Rc::clone(&client);
+            let startup_state = Rc::clone(&startup_state);
             let shell_state = Rc::clone(&shell_state);
             let vault_label = vault_label.clone();
+            let daemon_detail_label = daemon_detail_label.clone();
             let tool_rail = tool_rail.clone();
             let context_panel_ref = Rc::clone(&context_panel_ref);
             let content_stack = content_stack.clone();
@@ -833,8 +864,10 @@ impl KnotWindow {
                 }
                 refresh_startup_shell(
                     client.as_ref(),
+                    startup_state.as_ref(),
                     &shell_state.borrow(),
                     &vault_label,
+                    &daemon_detail_label,
                     &retry_startup_btn,
                     &open_vault_btn,
                     &create_vault_btn,
@@ -977,6 +1010,19 @@ mod tests {
         assert!(startup_allows_shell_navigation(&StartupState::VaultOpen {
             name: Some("Example".to_string())
         }));
+    }
+
+    #[test]
+    fn startup_detail_text_tracks_daemon_error_message() {
+        let state = StartupState::DaemonUnavailable {
+            message: "socket timeout".to_string(),
+        };
+
+        assert_eq!(startup_detail_text(&state), "socket timeout");
+        assert_eq!(
+            startup_detail_text(&StartupState::NoVault),
+            "Open or create a vault to start browsing notes."
+        );
     }
 
     #[test]

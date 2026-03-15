@@ -246,11 +246,13 @@ cargo check
 - Startup states are actionable
 - Vault-info lookup failures degrade to a connected shell state instead of blocking navigation
 - Startup-only recovery surfaces cannot be bypassed by the search shortcut
+- Startup shortcut guards do not make fresh blocking daemon RPCs on the GTK thread
 - Search result activation goes through one note-open path
 - Late note-load results do not override a newer Graph or Settings navigation choice
 - Inspector modes are explicit
 - Search has user-visible empty and error states
 - Clearing an already-empty search query does not leave `search_changed` suppression stuck on
+- Refreshed startup diagnostics update the daemon-unavailable detail text
 
 ## Commit Gate
 
