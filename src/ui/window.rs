@@ -98,6 +98,10 @@ fn startup_shell_chrome_visible(state: &StartupState) -> bool {
     matches!(state, StartupState::VaultOpen { .. })
 }
 
+fn startup_allows_shell_navigation(state: &StartupState) -> bool {
+    startup_shell_chrome_visible(state)
+}
+
 fn startup_action_specs(state: &StartupState) -> &'static [StartupAction] {
     match state {
         StartupState::DaemonUnavailable { .. } => &[StartupAction::RetryDaemon],
@@ -628,6 +632,7 @@ impl KnotWindow {
 
     fn install_window_actions(&self) {
         let action = gio::SimpleAction::new("focus-search", None);
+        let client = Rc::clone(&self.client);
         let shell_state = Rc::clone(&self.shell_state);
         let tool_rail = self.tool_rail.clone();
         let context_panel = Rc::clone(&self.context_panel);
@@ -635,6 +640,9 @@ impl KnotWindow {
         let inspector_rail = self.inspector_rail.clone();
         let search_view = Rc::clone(&self.search_view);
         action.connect_activate(move |_action, _param| {
+            if !startup_allows_shell_navigation(&determine_startup_state(client.as_ref())) {
+                return;
+            }
             let mut shell_state = shell_state.borrow_mut();
             focus_search_shell(
                 &mut shell_state,
@@ -956,6 +964,19 @@ mod tests {
             no_vault_actions,
             &[StartupAction::OpenVault, StartupAction::CreateVault]
         );
+    }
+
+    #[test]
+    fn startup_navigation_only_unlocked_when_vault_is_open() {
+        assert!(!startup_allows_shell_navigation(
+            &StartupState::DaemonUnavailable {
+                message: "offline".to_string()
+            }
+        ));
+        assert!(!startup_allows_shell_navigation(&StartupState::NoVault));
+        assert!(startup_allows_shell_navigation(&StartupState::VaultOpen {
+            name: Some("Example".to_string())
+        }));
     }
 
     #[test]

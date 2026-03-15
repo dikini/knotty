@@ -109,7 +109,8 @@ fn clear_search_view(
     results_list: &gtk::ListBox,
 ) {
     *search_generation.borrow_mut() += 1;
-    *suppress_search_changed.borrow_mut() = true;
+    *suppress_search_changed.borrow_mut() =
+        should_suppress_search_changed_on_clear(search_entry.text().as_str());
     search_entry.set_text("");
     set_search_state(
         state,
@@ -120,6 +121,10 @@ fn clear_search_view(
         results_list,
         None,
     );
+}
+
+fn should_suppress_search_changed_on_clear(current_query: &str) -> bool {
+    !current_query.is_empty()
 }
 
 pub struct SearchView {
@@ -519,6 +524,12 @@ mod tests {
             .status_text(),
             "Search error: offline"
         );
+    }
+
+    #[test]
+    fn clear_only_suppresses_search_changed_when_text_will_change() {
+        assert!(should_suppress_search_changed_on_clear("graph"));
+        assert!(!should_suppress_search_changed_on_clear(""));
     }
 }
 
