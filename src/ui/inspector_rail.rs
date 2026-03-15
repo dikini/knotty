@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 type CloseCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
+#[derive(Clone)]
 pub struct InspectorRail {
     widget: gtk::Box,
     title_label: gtk::Label,

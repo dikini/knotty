@@ -8,6 +8,7 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 - `specs/system/`: roadmap and dependency overview
 - `plans/`: one implementation plan per spec
 - `reference/`: frozen contracts and behavior references needed to implement the slices locally
+- `notes/`: per-subsystem future opportunities, cleanup notes, and follow-up observations that are intentionally out of the current slice
 
 ## Slice Order
 
@@ -24,6 +25,7 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 
 - Slice boundaries are chosen for GTK delivery order, not for 1:1 mirroring of Tauri components.
 - The local source of truth for implementation is `docs/reference/`, not the upstream repository.
+- Review-driven future opportunities that are not part of the current slice should be recorded in `docs/notes/`.
 - Each slice must follow TDD: write failing tests, verify red, implement, verify green, review, fix, repeat.
 - Each slice ends with a full relevant test run, a review pass, and fixes before completion.
 - Commit only after the slice test gate is green.

@@ -2,16 +2,18 @@ use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolMode {
     Notes,
     Search,
     Graph,
+    Settings,
 }
 
 type ModeChangeCallback = Rc<RefCell<Option<Box<dyn Fn(ToolMode)>>>>;
 type SettingsCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
+#[derive(Clone)]
 pub struct ToolRail {
     widget: gtk::Box,
     mode: RefCell<ToolMode>,
@@ -175,6 +177,7 @@ impl ToolRail {
             ToolMode::Notes => self.notes_btn.add_css_class("active"),
             ToolMode::Search => self.search_btn.add_css_class("active"),
             ToolMode::Graph => self.graph_btn.add_css_class("active"),
+            ToolMode::Settings => {}
         }
     }
 

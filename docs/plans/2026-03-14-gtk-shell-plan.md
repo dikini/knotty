@@ -115,6 +115,11 @@ After `GTS-001`, `GTS-002` and `GTS-005` can proceed in parallel if file ownersh
 | GTS-006A | GTS-006 | Run slice verification | repo-wide | - |
 | GTS-006B | GTS-006 | Fix slice-only regressions | touched files only | unrelated modules |
 
+### Review Follow-up Checks
+
+- Shared note-load completion must only route back to Notes when the initiating context requires it.
+- Search-result note loads may return to Notes; sidebar/context note loads must not infer that from current tool mode alone.
+
 ### Task GTS-001: Add shell-state model and unit tests
 
 **Files**
@@ -207,7 +212,7 @@ fn selecting_graph_tool_switches_context_panel_to_graph() {
 **Steps**
 1. Add tests for focus shortcut, empty states, keyboard navigation, and result activation.
 2. Confirm red.
-3. Implement the missing shortcut/focus wiring and complete state transitions.
+3. Implement the missing shortcut/focus wiring, move `search_notes` off the GTK thread via the async bridge, and complete explicit `idle`/`loading`/`empty`/`results`/`error` state transitions.
 4. Re-run targeted tests until green.
 5. Review debounce behavior and ensure search activation delegates to the central note-load path.
 
@@ -244,9 +249,15 @@ cargo check
 
 - Shell state owns routing, not scattered callbacks
 - Startup states are actionable
+- Vault-info lookup failures degrade to a connected shell state instead of blocking navigation
+- Startup-only recovery surfaces cannot be bypassed by the search shortcut
+- Startup shortcut guards do not make fresh blocking daemon RPCs on the GTK thread
 - Search result activation goes through one note-open path
+- Late note-load results do not override a newer Graph or Settings navigation choice
 - Inspector modes are explicit
 - Search has user-visible empty and error states
+- Clearing an already-empty search query does not leave `search_changed` suppression stuck on
+- Refreshed startup diagnostics update the daemon-unavailable detail text
 
 ## Commit Gate
 

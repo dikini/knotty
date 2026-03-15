@@ -7,22 +7,152 @@ use std::time::Duration;
 use tracing as log;
 
 use crate::client::{KnotdClient, SearchResult};
+use crate::ui::async_bridge;
 
 const MAX_RESULTS: usize = 10;
 const DEBOUNCE_MS: u64 = 300;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SearchState {
+    Idle,
+    Loading { query: String },
+    Empty { query: String },
+    Results { query: String, count: usize },
+    Error { message: String },
+}
+
+impl SearchState {
+    fn status_text(&self) -> String {
+        match self {
+            SearchState::Idle => "Type to search".to_string(),
+            SearchState::Loading { .. } => "Searching...".to_string(),
+            SearchState::Empty { query } => format!("No results for '{}'", query),
+            SearchState::Results { query, count } => format!(
+                "{} result{} for '{}'",
+                count,
+                if *count == 1 { "" } else { "s" },
+                query
+            ),
+            SearchState::Error { message } => format!("Search error: {}", message),
+        }
+    }
+}
+
+fn apply_search_state(
+    state: &SearchState,
+    status_label: &gtk::Label,
+    results: &RefCell<Vec<SearchResult>>,
+    selected_index: &RefCell<i32>,
+    results_list: &gtk::ListBox,
+    query_for_results: Option<&str>,
+) {
+    status_label.set_label(&state.status_text());
+
+    match state {
+        SearchState::Idle
+        | SearchState::Loading { .. }
+        | SearchState::Empty { .. }
+        | SearchState::Error { .. } => {
+            clear_results_ui(results, selected_index, results_list);
+        }
+        SearchState::Results { .. } => {
+            while let Some(child) = results_list.first_child() {
+                results_list.remove(&child);
+            }
+            *selected_index.borrow_mut() = if results.borrow().is_empty() { -1 } else { 0 };
+            if let Some(query) = query_for_results {
+                for (idx, result) in results.borrow().iter().enumerate() {
+                    let row = create_search_result_row(result, query, idx == 0);
+                    results_list.append(&row);
+                }
+            }
+        }
+    }
+}
+
+fn set_search_state(
+    state_cell: &RefCell<SearchState>,
+    next_state: SearchState,
+    status_label: &gtk::Label,
+    results: &RefCell<Vec<SearchResult>>,
+    selected_index: &RefCell<i32>,
+    results_list: &gtk::ListBox,
+    query_for_results: Option<&str>,
+) {
+    *state_cell.borrow_mut() = next_state.clone();
+    apply_search_state(
+        &next_state,
+        status_label,
+        results,
+        selected_index,
+        results_list,
+        query_for_results,
+    );
+}
+
+fn clear_results_ui(
+    results: &RefCell<Vec<SearchResult>>,
+    selected_index: &RefCell<i32>,
+    results_list: &gtk::ListBox,
+) {
+    while let Some(child) = results_list.first_child() {
+        results_list.remove(&child);
+    }
+    *results.borrow_mut() = Vec::new();
+    *selected_index.borrow_mut() = -1;
+}
+
+fn clear_search_view(
+    search_entry: &gtk::SearchEntry,
+    state: &RefCell<SearchState>,
+    results: &RefCell<Vec<SearchResult>>,
+    selected_index: &RefCell<i32>,
+    search_generation: &RefCell<u64>,
+    suppress_search_changed: &RefCell<bool>,
+    status_label: &gtk::Label,
+    results_list: &gtk::ListBox,
+) {
+    *search_generation.borrow_mut() += 1;
+    *suppress_search_changed.borrow_mut() =
+        should_suppress_search_changed_on_clear(search_entry.text().as_str());
+    search_entry.set_text("");
+    set_search_state(
+        state,
+        SearchState::Idle,
+        status_label,
+        results,
+        selected_index,
+        results_list,
+        None,
+    );
+}
+
+fn should_suppress_search_changed_on_clear(current_query: &str) -> bool {
+    !current_query.is_empty()
+}
+
+fn result_path_at(results: &RefCell<Vec<SearchResult>>, index: i32) -> Option<String> {
+    if index < 0 {
+        return None;
+    }
+
+    results
+        .borrow()
+        .get(index as usize)
+        .map(|result| result.path.clone())
+}
 
 pub struct SearchView {
     widget: gtk::Box,
     search_entry: gtk::SearchEntry,
     results_list: gtk::ListBox,
     status_label: gtk::Label,
-    hint_label: gtk::Label,
-    client: Rc<KnotdClient>,
     on_result_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
-    current_query: RefCell<String>,
     selected_index: RefCell<i32>,
     results: RefCell<Vec<SearchResult>>,
     search_generation: RefCell<u64>,
+    suppress_search_changed: RefCell<bool>,
+    state: RefCell<SearchState>,
 }
 
 impl SearchView {
@@ -82,23 +212,29 @@ impl SearchView {
 
         let on_result_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>> =
             Rc::new(RefCell::new(None));
-        let current_query = RefCell::new(String::new());
         let selected_index = RefCell::new(-1i32);
         let results = RefCell::new(Vec::new());
         let search_generation = RefCell::new(0u64);
+        let suppress_search_changed = RefCell::new(false);
+        let state = RefCell::new(SearchState::Idle);
 
         // Connect search entry with debouncing
         let client_clone = Rc::clone(&client);
         let results_list_clone = results_list.clone();
         let status_label_clone = status_label.clone();
-        let current_query_clone = current_query.clone();
         let selected_index_clone = selected_index.clone();
         let results_clone = results.clone();
         let search_generation_clone = search_generation.clone();
+        let suppress_search_changed_clone = suppress_search_changed.clone();
+        let state_clone = state.clone();
 
         search_entry.connect_search_changed(move |entry| {
+            if *suppress_search_changed_clone.borrow() {
+                *suppress_search_changed_clone.borrow_mut() = false;
+                return;
+            }
+
             let query = entry.text().to_string();
-            *current_query_clone.borrow_mut() = query.clone();
 
             // Increment generation to invalidate previous search
             let current_gen = {
@@ -107,24 +243,31 @@ impl SearchView {
                 *gen
             };
 
-            if query.is_empty() {
-                // Clear results
-                while let Some(child) = results_list_clone.first_child() {
-                    results_list_clone.remove(&child);
-                }
-                status_label_clone.set_label("Type to search");
-                *results_clone.borrow_mut() = Vec::new();
-                *selected_index_clone.borrow_mut() = -1;
-                return;
-            }
-
             if query.len() < 2 {
-                status_label_clone.set_label("Type at least 2 characters...");
+                set_search_state(
+                    &state_clone,
+                    SearchState::Idle,
+                    &status_label_clone,
+                    &results_clone,
+                    &selected_index_clone,
+                    &results_list_clone,
+                    None,
+                );
                 return;
             }
 
-            // Show searching state
-            status_label_clone.set_label("Searching...");
+            let loading_state = SearchState::Loading {
+                query: query.clone(),
+            };
+            set_search_state(
+                &state_clone,
+                loading_state,
+                &status_label_clone,
+                &results_clone,
+                &selected_index_clone,
+                &results_list_clone,
+                None,
+            );
 
             // Debounce search
             let client_inner = Rc::clone(&client_clone);
@@ -133,8 +276,8 @@ impl SearchView {
             let query_inner = query.clone();
             let results_inner = results_clone.clone();
             let selected_index_inner = selected_index_clone.clone();
-
             let search_generation_inner = search_generation_clone.clone();
+            let state_inner = state_clone.clone();
 
             glib::timeout_add_local(Duration::from_millis(DEBOUNCE_MS), move || {
                 // Check if this search is still valid (generation hasn't changed)
@@ -142,49 +285,63 @@ impl SearchView {
                     return glib::ControlFlow::Break;
                 }
 
-                // Perform search
-                match client_inner.search_notes(&query_inner, Some(MAX_RESULTS)) {
-                    Ok(search_results) => {
-                        // Check again before updating UI
-                        if *search_generation_inner.borrow() != current_gen {
-                            return glib::ControlFlow::Break;
+                let client_for_work = client_inner.as_ref().clone();
+                let query_for_work = query_inner.clone();
+                let query_for_ui = query_inner.clone();
+                let search_generation_for_ui = search_generation_inner.clone();
+                let results_for_ui = results_inner.clone();
+                let state_for_ui = state_inner.clone();
+                let status_label_for_ui = status_label_inner.clone();
+                let selected_index_for_ui = selected_index_inner.clone();
+                let results_list_for_ui = results_list_inner.clone();
+
+                async_bridge::run_background(move || {
+                    client_for_work
+                        .search_notes(&query_for_work, Some(MAX_RESULTS))
+                        .map_err(|error| error.to_string())
+                })
+                .attach_local(move |result| {
+                    if *search_generation_for_ui.borrow() != current_gen {
+                        return;
+                    }
+
+                    match result {
+                        Ok(search_results) => {
+                            *results_for_ui.borrow_mut() = search_results;
+                            let next_state = if results_for_ui.borrow().is_empty() {
+                                SearchState::Empty {
+                                    query: query_for_ui.clone(),
+                                }
+                            } else {
+                                SearchState::Results {
+                                    query: query_for_ui.clone(),
+                                    count: results_for_ui.borrow().len(),
+                                }
+                            };
+                            set_search_state(
+                                &state_for_ui,
+                                next_state,
+                                &status_label_for_ui,
+                                &results_for_ui,
+                                &selected_index_for_ui,
+                                &results_list_for_ui,
+                                Some(&query_for_ui),
+                            );
                         }
-
-                        // Clear existing
-                        while let Some(child) = results_list_inner.first_child() {
-                            results_list_inner.remove(&child);
-                        }
-
-                        let count = search_results.len();
-                        *results_inner.borrow_mut() = search_results.clone();
-
-                        if count == 0 {
-                            status_label_inner
-                                .set_label(&format!("No results for '{}'", query_inner));
-                            *selected_index_inner.borrow_mut() = -1;
-                        } else {
-                            status_label_inner.set_label(&format!(
-                                "{} result{} for '{}'",
-                                count,
-                                if count == 1 { "" } else { "s" },
-                                query_inner
-                            ));
-                            *selected_index_inner.borrow_mut() = 0;
-
-                            // Add results
-                            for (idx, result) in search_results.iter().enumerate() {
-                                let row = create_search_result_row(result, &query_inner, idx == 0);
-                                results_list_inner.append(&row);
-                            }
+                        Err(error) => {
+                            log::error!("Search failed: {}", error);
+                            set_search_state(
+                                &state_for_ui,
+                                SearchState::Error { message: error },
+                                &status_label_for_ui,
+                                &results_for_ui,
+                                &selected_index_for_ui,
+                                &results_list_for_ui,
+                                None,
+                            );
                         }
                     }
-                    Err(e) => {
-                        log::error!("Search failed: {}", e);
-                        status_label_inner.set_label(&format!("Search error: {}", e));
-                        *results_inner.borrow_mut() = Vec::new();
-                        *selected_index_inner.borrow_mut() = -1;
-                    }
-                }
+                });
 
                 glib::ControlFlow::Break
             });
@@ -196,67 +353,86 @@ impl SearchView {
         let results_ref = results.clone();
         let on_result_selected_ref = Rc::clone(&on_result_selected);
         let search_entry_ref = search_entry.clone();
+        let state_ref = state.clone();
+        let search_generation_ref = search_generation.clone();
+        let suppress_search_changed_ref = suppress_search_changed.clone();
         let status_label_ref = status_label.clone();
+        let results_list_ref_for_clear = results_list.clone();
 
         let key_controller = gtk::EventControllerKey::new();
-        key_controller.connect_key_pressed(move |_, key, _, _| {
-            let results = results_ref.borrow();
-            let mut selected = *selected_index_ref.borrow_mut();
+        key_controller.connect_key_pressed(move |_, key, _, _| match key {
+            gdk::Key::Down => {
+                let next_selected = {
+                    let results = results_ref.borrow();
+                    let selected = *selected_index_ref.borrow();
+                    if !results.is_empty() && selected < results.len() as i32 - 1 {
+                        Some(selected + 1)
+                    } else {
+                        None
+                    }
+                };
 
-            match key {
-                gdk::Key::Down => {
-                    if !results.is_empty() {
-                        if selected < results.len() as i32 - 1 {
-                            selected += 1;
-                            *selected_index_ref.borrow_mut() = selected;
-                            // Update visual selection
-                            if let Some(row) = results_list_ref.row_at_index(selected) {
-                                results_list_ref.select_row(Some(&row));
-                                // Grab focus for keyboard navigation feedback
-                                row.grab_focus();
-                            }
-                        }
+                if let Some(next_selected) = next_selected {
+                    *selected_index_ref.borrow_mut() = next_selected;
+                    if let Some(row) = results_list_ref.row_at_index(next_selected) {
+                        results_list_ref.select_row(Some(&row));
+                        row.grab_focus();
                     }
-                    glib::Propagation::Stop
                 }
-                gdk::Key::Up => {
-                    if selected > 0 {
-                        selected -= 1;
-                        *selected_index_ref.borrow_mut() = selected;
-                        if let Some(row) = results_list_ref.row_at_index(selected) {
-                            results_list_ref.select_row(Some(&row));
-                        }
-                    }
-                    glib::Propagation::Stop
-                }
-                gdk::Key::Return | gdk::Key::KP_Enter => {
-                    if selected >= 0 && selected < results.len() as i32 {
-                        if let Some(result) = results.get(selected as usize) {
-                            if let Some(ref cb) = *on_result_selected_ref.borrow() {
-                                cb(&result.path);
-                            }
-                        }
-                    }
-                    glib::Propagation::Stop
-                }
-                gdk::Key::Escape => {
-                    // Clear search text and results
-                    search_entry_ref.set_text("");
-                    status_label_ref.set_label("Type to search");
-                    glib::Propagation::Proceed
-                }
-                _ => glib::Propagation::Proceed,
+                glib::Propagation::Stop
             }
+            gdk::Key::Up => {
+                let next_selected = {
+                    let selected = *selected_index_ref.borrow();
+                    if selected > 0 {
+                        Some(selected - 1)
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(next_selected) = next_selected {
+                    *selected_index_ref.borrow_mut() = next_selected;
+                    if let Some(row) = results_list_ref.row_at_index(next_selected) {
+                        results_list_ref.select_row(Some(&row));
+                    }
+                }
+                glib::Propagation::Stop
+            }
+            gdk::Key::Return | gdk::Key::KP_Enter => {
+                let selected_path = result_path_at(&results_ref, *selected_index_ref.borrow());
+
+                if let Some(path) = selected_path {
+                    if let Some(ref cb) = *on_result_selected_ref.borrow() {
+                        cb(&path);
+                    }
+                }
+                glib::Propagation::Stop
+            }
+            gdk::Key::Escape => {
+                clear_search_view(
+                    &search_entry_ref,
+                    &state_ref,
+                    &results_ref,
+                    &selected_index_ref,
+                    &search_generation_ref,
+                    &suppress_search_changed_ref,
+                    &status_label_ref,
+                    &results_list_ref_for_clear,
+                );
+                glib::Propagation::Proceed
+            }
+            _ => glib::Propagation::Proceed,
         });
         search_entry.add_controller(key_controller);
 
         // Connect result selection
         let on_result_selected_clone = Rc::clone(&on_result_selected);
-        results_list.connect_row_activated(move |list, row| {
-            if let Some(path) = row.widget_name().as_str().strip_prefix("search-") {
-                // Find the result
+        let results_for_activation = results.clone();
+        results_list.connect_row_activated(move |_list, row| {
+            if let Some(path) = result_path_at(&results_for_activation, row.index()) {
                 if let Some(ref cb) = *on_result_selected_clone.borrow() {
-                    cb(path);
+                    cb(&path);
                 }
             }
         });
@@ -266,13 +442,12 @@ impl SearchView {
             search_entry,
             results_list,
             status_label,
-            hint_label,
-            client,
             on_result_selected,
-            current_query,
             selected_index,
             results,
             search_generation,
+            suppress_search_changed,
+            state,
         }
     }
 
@@ -281,16 +456,16 @@ impl SearchView {
     }
 
     pub fn clear(&self) {
-        // Increment generation to invalidate any pending searches
-        *self.search_generation.borrow_mut() += 1;
-
-        self.search_entry.set_text("");
-        while let Some(child) = self.results_list.first_child() {
-            self.results_list.remove(&child);
-        }
-        self.status_label.set_label("Type to search");
-        *self.results.borrow_mut() = Vec::new();
-        *self.selected_index.borrow_mut() = -1;
+        clear_search_view(
+            &self.search_entry,
+            &self.state,
+            &self.results,
+            &self.selected_index,
+            &self.search_generation,
+            &self.suppress_search_changed,
+            &self.status_label,
+            &self.results_list,
+        );
     }
 
     pub fn connect_result_selected<F>(&self, f: F)
@@ -305,13 +480,80 @@ impl SearchView {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_state_exposes_required_status_messages() {
+        assert_eq!(SearchState::Idle.status_text(), "Type to search");
+        assert_eq!(
+            SearchState::Loading {
+                query: "graph".to_string()
+            }
+            .status_text(),
+            "Searching..."
+        );
+        assert_eq!(
+            SearchState::Empty {
+                query: "graph".to_string()
+            }
+            .status_text(),
+            "No results for 'graph'"
+        );
+        assert_eq!(
+            SearchState::Results {
+                query: "graph".to_string(),
+                count: 2
+            }
+            .status_text(),
+            "2 results for 'graph'"
+        );
+        assert_eq!(
+            SearchState::Error {
+                message: "offline".to_string()
+            }
+            .status_text(),
+            "Search error: offline"
+        );
+    }
+
+    #[test]
+    fn clear_only_suppresses_search_changed_when_text_will_change() {
+        assert!(should_suppress_search_changed_on_clear("graph"));
+        assert!(!should_suppress_search_changed_on_clear(""));
+    }
+
+    #[test]
+    fn result_path_at_uses_result_model_indices() {
+        let results = RefCell::new(vec![
+            SearchResult {
+                path: "notes/a.md".to_string(),
+                title: "A".to_string(),
+                excerpt: String::new(),
+                score: 1.0,
+            },
+            SearchResult {
+                path: "notes/b.md".to_string(),
+                title: "B".to_string(),
+                excerpt: String::new(),
+                score: 0.8,
+            },
+        ]);
+
+        assert_eq!(result_path_at(&results, 0).as_deref(), Some("notes/a.md"));
+        assert_eq!(result_path_at(&results, 1).as_deref(), Some("notes/b.md"));
+        assert_eq!(result_path_at(&results, -1), None);
+        assert_eq!(result_path_at(&results, 2), None);
+    }
+}
+
 fn create_search_result_row(
     result: &SearchResult,
     query: &str,
     is_selected: bool,
 ) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
-    row.set_widget_name(&format!("search-{}", result.path));
 
     if is_selected {
         row.add_css_class("selected");

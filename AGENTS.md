@@ -20,6 +20,7 @@ This file defines project-level execution policy for coding agents and contribut
 - `docs/specs/` stores canonical behavior and invariant specs.
 - `docs/plans/` stores implementation and alignment plans.
 - `docs/reference/` stores frozen contract and behavior references needed to work locally.
+- `docs/notes/` stores per-subsystem future opportunities, cleanup notes, and non-blocking follow-up observations.
 
 Default flow for non-trivial work:
 
@@ -29,6 +30,8 @@ Default flow for non-trivial work:
 4. review work using rust-skills and review skills 
 4. update `CHANGELOG.md`
 5. run the verification gates
+
+When you identify non-blocking future work during implementation or review, add it to the relevant subsystem file in `docs/notes/` so it remains discoverable.
 
 ## Policy Enforcement
 
@@ -49,3 +52,8 @@ Default flow for non-trivial work:
 
 - Every behavior or workflow change must include verification evidence.
 - If verification cannot run, document why and what residual risk remains.
+
+## GTK API Policy
+
+- Do not introduce new uses of deprecated GTK or libadwaita APIs when a supported replacement exists in the current project baseline.
+- When touching code that already relies on deprecated GTK APIs, prefer migrating that usage as part of the change if the replacement stays within the slice's scope.

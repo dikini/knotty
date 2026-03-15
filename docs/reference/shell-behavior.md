@@ -8,7 +8,7 @@ Define the expected startup, routing, inspector, and search behavior for the GTK
 
 | State | Condition | Visible Surface | Required Action |
 |---|---|---|---|
-| daemon unavailable | cannot connect to `knotd` | startup error panel | retry or open diagnostics path |
+| daemon unavailable | cannot connect to `knotd` | startup error panel | retry |
 | no vault open | daemon responds but no vault is active | no-vault panel | open vault or create vault |
 | vault open | active vault exists | full shell | load notes/search/context |
 
