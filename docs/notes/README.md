@@ -22,4 +22,5 @@ This directory stores per-subsystem notes about future opportunities discovered 
 - `editor.md`: editor follow-up opportunities and possible structured-edit refinements
 - `note-types.md`: note-type media/embed follow-up opportunities and renderer constraints
 - `graph.md`: graph rendering and neighborhood-layout follow-up opportunities
+- `settings.md`: settings follow-up opportunities and intentional section placeholders
 - `client.md`: retained daemon-client surfaces owned by future graph and settings slices

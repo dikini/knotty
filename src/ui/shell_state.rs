@@ -15,7 +15,6 @@ pub enum ContentMode {
 pub enum InspectorMode {
     Hidden,
     Details,
-    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +54,7 @@ impl ShellState {
     pub fn inspector_mode(&self) -> InspectorMode {
         match self.tool_mode {
             ToolMode::Notes | ToolMode::Graph => InspectorMode::Details,
-            ToolMode::Search => InspectorMode::Hidden,
-            ToolMode::Settings => InspectorMode::Settings,
+            ToolMode::Search | ToolMode::Settings => InspectorMode::Hidden,
         }
     }
 }
@@ -117,6 +115,6 @@ mod tests {
 
         assert_eq!(shell.tool_mode(), ToolMode::Settings);
         assert_eq!(shell.content_mode(), ContentMode::Settings);
-        assert_eq!(shell.inspector_mode(), InspectorMode::Settings);
+        assert_eq!(shell.inspector_mode(), InspectorMode::Hidden);
     }
 }

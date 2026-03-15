@@ -62,21 +62,7 @@ impl InspectorRail {
             .build();
         details_view.append(&details_placeholder);
 
-        // Settings view (placeholder)
-        let settings_view = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .margin_start(16)
-            .margin_end(16)
-            .build();
-
-        let settings_label = gtk::Label::builder()
-            .label("Settings will appear here")
-            .wrap(true)
-            .build();
-        settings_view.append(&settings_label);
-
         content_stack.add_titled(&details_view, Some("details"), "Details");
-        content_stack.add_titled(&settings_view, Some("settings"), "Settings");
 
         widget.append(&header);
         widget.append(&content_stack);
@@ -112,7 +98,6 @@ impl InspectorRail {
         self.content_stack.set_visible_child_name(mode);
         let title = match mode {
             "details" => "Details",
-            "settings" => "Settings",
             _ => "Inspector",
         };
         self.title_label.set_label(title);

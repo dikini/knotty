@@ -303,6 +303,16 @@ impl KnotdClient {
         let value = self.call_tool("update_vault_settings", json!({"patch": patch}))?;
         serde_json::from_value(value).map_err(ClientError::Json)
     }
+
+    pub fn list_vault_plugins(&self) -> Result<Vec<VaultPluginInfo>> {
+        let value = self.call_tool("list_vault_plugins", json!({}))?;
+        serde_json::from_value(value).map_err(ClientError::Json)
+    }
+
+    pub fn reindex_vault(&self) -> Result<MaintenanceResult> {
+        let value = self.call_tool("reindex_vault", json!({}))?;
+        serde_json::from_value(value).map_err(ClientError::Json)
+    }
 }
 
 impl Default for KnotdClient {
@@ -348,6 +358,32 @@ pub struct VaultEditorSettings {
     pub font_size: i32,
     #[serde(rename = "tab_size")]
     pub tab_size: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultPluginInfo {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub effective_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MaintenanceResult {
+    Message(String),
+    Count(i64),
+    Object {
+        #[serde(default)]
+        message: Option<String>,
+        #[serde(default)]
+        count: Option<i64>,
+        #[serde(default)]
+        reindexed: Option<i64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -816,5 +852,41 @@ mod tests {
                 target: "notes/other.md".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn vault_plugin_info_deserializes_effective_state() {
+        let plugins: Vec<VaultPluginInfo> = serde_json::from_value(json!([
+            {
+                "id": "daily-notes",
+                "title": "Daily Notes",
+                "enabled": true,
+                "effective_enabled": false
+            }
+        ]))
+        .expect("plugin list should deserialize");
+
+        assert_eq!(
+            plugins,
+            vec![VaultPluginInfo {
+                id: "daily-notes".to_string(),
+                title: "Daily Notes".to_string(),
+                enabled: true,
+                effective_enabled: Some(false),
+            }]
+        );
+    }
+
+    #[test]
+    fn maintenance_result_deserializes_message_and_count_shapes() {
+        let message: MaintenanceResult =
+            serde_json::from_value(json!("Reindex complete")).expect("message result");
+        let count: MaintenanceResult = serde_json::from_value(json!(42)).expect("count result");
+
+        assert_eq!(
+            message,
+            MaintenanceResult::Message("Reindex complete".to_string())
+        );
+        assert_eq!(count, MaintenanceResult::Count(42));
     }
 }

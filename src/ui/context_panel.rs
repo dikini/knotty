@@ -5,11 +5,13 @@ use std::rc::Rc;
 use crate::client::KnotdClient;
 use crate::ui::explorer::{ExplorerSelection, ExplorerView, NoteSwitchDecision};
 use crate::ui::graph_view::{graph_status_text, GraphContextDetails, GraphLoadState, GraphScope};
+use crate::ui::settings_view::SettingsSection;
 use crate::ui::tool_rail::ToolMode;
 
 type NoteSelectedCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
 type SelectionClearedCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 type GraphEventCallback = Rc<RefCell<Option<Box<dyn Fn(GraphPanelEvent)>>>>;
+type SettingsSectionCallback = Rc<RefCell<Option<Box<dyn Fn(SettingsSection)>>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphPanelEvent {
@@ -50,6 +52,7 @@ pub struct ContextPanel {
     on_note_selected: NoteSelectedCallback,
     on_selection_cleared: SelectionClearedCallback,
     on_graph_event: GraphEventCallback,
+    on_settings_section: SettingsSectionCallback,
     graph_status_label: gtk::Label,
     graph_selected_label: gtk::Label,
     graph_selected_path: Rc<RefCell<Option<String>>>,
@@ -60,6 +63,8 @@ pub struct ContextPanel {
     graph_vault_scope_btn: gtk::CheckButton,
     graph_node_scope_btn: gtk::CheckButton,
     graph_syncing: Rc<Cell<bool>>,
+    settings_list: gtk::ListBox,
+    settings_syncing: Rc<Cell<bool>>,
 }
 
 fn root_window(widget: &gtk::Widget) -> Option<gtk::Window> {
@@ -101,6 +106,24 @@ fn graph_selected_text(details: &GraphContextDetails) -> String {
         (Some(label), Some(path)) => format!("{label}\n{path}"),
         _ => "No node selected".to_string(),
     }
+}
+
+fn settings_row(section: SettingsSection) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+    row.set_selectable(true);
+    row.set_activatable(true);
+    row.set_widget_name(section.stack_name());
+    row.set_child(Some(
+        &gtk::Label::builder()
+            .label(section.title())
+            .xalign(0.0)
+            .margin_top(10)
+            .margin_bottom(10)
+            .margin_start(12)
+            .margin_end(12)
+            .build(),
+    ));
+    row
 }
 
 fn prompt_text<F>(
@@ -397,17 +420,18 @@ impl ContextPanel {
 
         let settings_view = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .margin_start(12)
-            .margin_end(12)
-            .margin_top(12)
+            .margin_start(8)
+            .margin_end(8)
+            .margin_top(8)
             .build();
-        settings_view.append(
-            &gtk::Label::builder()
-                .label("Settings context is shown in the main panel.")
-                .wrap(true)
-                .css_classes(vec!["dim-label".to_string()])
-                .build(),
-        );
+        let settings_list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Single)
+            .css_classes(vec!["navigation-sidebar".to_string()])
+            .build();
+        for section in SettingsSection::all() {
+            settings_list.append(&settings_row(*section));
+        }
+        settings_view.append(&settings_list);
 
         stack.add_titled(&notes_view, Some("notes"), "Notes");
         stack.add_titled(&search_view, Some("search"), "Search");
@@ -420,7 +444,9 @@ impl ContextPanel {
         let on_note_selected: NoteSelectedCallback = Rc::new(RefCell::new(None));
         let on_selection_cleared: SelectionClearedCallback = Rc::new(RefCell::new(None));
         let on_graph_event: GraphEventCallback = Rc::new(RefCell::new(None));
+        let on_settings_section: SettingsSectionCallback = Rc::new(RefCell::new(None));
         let graph_syncing = Rc::new(Cell::new(false));
+        let settings_syncing = Rc::new(Cell::new(false));
 
         let on_note_selected_clone = Rc::clone(&on_note_selected);
         explorer.connect_note_selected(move |path| {
@@ -433,6 +459,26 @@ impl ContextPanel {
         explorer.connect_selection_cleared(move || {
             if let Some(ref cb) = *on_selection_cleared_clone.borrow() {
                 cb();
+            }
+        });
+
+        let settings_syncing_for_select = Rc::clone(&settings_syncing);
+        let on_settings_section_clone = Rc::clone(&on_settings_section);
+        settings_list.connect_row_selected(move |_list, row| {
+            if settings_syncing_for_select.get() {
+                return;
+            }
+            let Some(row) = row else {
+                return;
+            };
+            let section = SettingsSection::all()
+                .iter()
+                .copied()
+                .find(|section| section.stack_name() == row.widget_name().as_str());
+            if let (Some(section), Some(callback)) =
+                (section, on_settings_section_clone.borrow().as_ref())
+            {
+                callback(section);
             }
         });
 
@@ -461,6 +507,7 @@ impl ContextPanel {
             on_note_selected,
             on_selection_cleared,
             on_graph_event,
+            on_settings_section,
             graph_status_label,
             graph_selected_label,
             graph_selected_path: Rc::new(RefCell::new(None)),
@@ -471,12 +518,15 @@ impl ContextPanel {
             graph_vault_scope_btn,
             graph_node_scope_btn,
             graph_syncing,
+            settings_list,
+            settings_syncing,
         };
 
         panel.wire_note_actions(new_note_btn, new_folder_btn);
         panel.wire_selection_actions();
         panel.wire_graph_actions(graph_reset_btn);
         panel.set_graph_state(&GraphPanelState::default());
+        panel.set_settings_section(SettingsSection::General);
         panel.explorer.refresh();
 
         panel
@@ -702,6 +752,13 @@ impl ContextPanel {
         *self.on_graph_event.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn connect_settings_section_selected<F>(&self, f: F)
+    where
+        F: Fn(SettingsSection) + 'static,
+    {
+        *self.on_settings_section.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_graph_state(&self, state: &GraphPanelState) {
         self.graph_syncing.set(true);
         self.graph_status_label
@@ -729,5 +786,21 @@ impl ContextPanel {
 
     pub fn widget(&self) -> &gtk::Box {
         &self.widget
+    }
+
+    pub fn set_settings_section(&self, section: SettingsSection) {
+        self.settings_syncing.set(true);
+        let mut child = self.settings_list.first_child();
+        while let Some(widget) = child {
+            let next = widget.next_sibling();
+            if let Ok(row) = widget.downcast::<gtk::ListBoxRow>() {
+                if row.widget_name().as_str() == section.stack_name() {
+                    self.settings_list.select_row(Some(&row));
+                    break;
+                }
+            }
+            child = next;
+        }
+        self.settings_syncing.set(false);
     }
 }
