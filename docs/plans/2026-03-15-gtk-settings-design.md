@@ -12,6 +12,7 @@ Capture the local design choices for `COMP-GTK-SETTINGS-007` before implementati
 - The initial settings sections are `General`, `Appearance`, `Controls`, `Vault`, `Plugins`, and `Maintenance`.
 - `Controls` ships now as an intentionally incomplete section so the information architecture stays stable during active development.
 - Vault settings remain daemon-backed through `get_vault_settings` and `update_vault_settings`.
+- The master `plugins_enabled` toggle remains vault-backed but lives in the `Plugins` section because that is the correct user-facing grouping.
 - App-level preferences persist locally in `~/.config/knot/knotty.toml`.
 
 ## Implications

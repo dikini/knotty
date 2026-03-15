@@ -15,19 +15,28 @@ type RefreshCallback = Rc<dyn Fn()>;
 
 #[derive(Clone)]
 struct VaultWidgets {
-    plugins_enabled_switch: gtk::Switch,
     file_visibility_entry: gtk::Entry,
     font_size_spin: gtk::SpinButton,
     tab_size_spin: gtk::SpinButton,
     status_label: gtk::Label,
 }
 
+#[derive(Clone)]
+struct PluginWidgets {
+    plugins_enabled_switch: gtk::Switch,
+    status_label: gtk::Label,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VaultSettingsForm {
-    plugins_enabled: bool,
     file_visibility: String,
     font_size: i32,
     tab_size: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PluginSettingsForm {
+    plugins_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +155,6 @@ impl SettingsView {
         );
 
         let vault_status = section_status_label("Loading vault settings...");
-        let plugins_enabled_switch = gtk::Switch::builder().halign(gtk::Align::Start).build();
         let file_visibility_entry = gtk::Entry::builder()
             .placeholder_text("e.g. visible")
             .hexpand(true)
@@ -157,14 +165,12 @@ impl SettingsView {
         let vault_save_btn = gtk::Button::with_label("Save vault settings");
         let vault_actions = action_row(&[&vault_save_btn, &vault_refresh_btn]);
         let vault_page = section_page(SettingsSection::Vault);
-        vault_page.append(&labeled_row("Plugins enabled", &plugins_enabled_switch));
         vault_page.append(&labeled_row("File visibility", &file_visibility_entry));
         vault_page.append(&labeled_row("Editor font size", &font_size_spin));
         vault_page.append(&labeled_row("Editor tab size", &tab_size_spin));
         vault_page.append(&vault_actions);
         vault_page.append(&vault_status);
         let vault_widgets = VaultWidgets {
-            plugins_enabled_switch: plugins_enabled_switch.clone(),
             file_visibility_entry: file_visibility_entry.clone(),
             font_size_spin: font_size_spin.clone(),
             tab_size_spin: tab_size_spin.clone(),
@@ -172,15 +178,25 @@ impl SettingsView {
         };
 
         let plugins_status = section_status_label("Loading plugins...");
+        let plugins_enabled_switch = gtk::Switch::builder().halign(gtk::Align::Start).build();
         let plugins_refresh_btn = gtk::Button::with_label("Refresh plugins");
+        let plugins_save_btn = gtk::Button::with_label("Save plugin settings");
         let plugins_list = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::None)
             .css_classes(vec!["boxed-list".to_string()])
             .build();
         let plugins_page = section_page(SettingsSection::Plugins);
-        plugins_page.append(&plugins_refresh_btn);
+        plugins_page.append(&labeled_row(
+            "Plugins enabled for this vault",
+            &plugins_enabled_switch,
+        ));
+        plugins_page.append(&action_row(&[&plugins_save_btn, &plugins_refresh_btn]));
         plugins_page.append(&plugins_status);
         plugins_page.append(&plugins_list);
+        let plugin_widgets = PluginWidgets {
+            plugins_enabled_switch: plugins_enabled_switch.clone(),
+            status_label: plugins_status.clone(),
+        };
 
         let maintenance_status = section_status_label("No maintenance action running.");
         let reindex_btn = gtk::Button::with_label("Reindex vault");
@@ -233,30 +249,39 @@ impl SettingsView {
         let refresh_vault = Rc::new({
             let client = Rc::clone(&client);
             let vault_widgets = vault_widgets.clone();
-            move || refresh_vault_settings(Rc::clone(&client), vault_widgets.clone())
+            let plugin_widgets = plugin_widgets.clone();
+            move || {
+                refresh_vault_settings(
+                    Rc::clone(&client),
+                    vault_widgets.clone(),
+                    plugin_widgets.clone(),
+                )
+            }
         });
         wire_vault_actions(
             Rc::clone(&client),
             vault_widgets.clone(),
+            plugin_widgets.clone(),
             vault_save_btn,
             vault_refresh_btn,
         );
         wire_plugins_actions(
             Rc::clone(&client),
-            plugins_status.clone(),
+            plugin_widgets.clone(),
             plugins_list.clone(),
+            plugins_save_btn,
             plugins_refresh_btn,
         );
         wire_maintenance_actions(Rc::clone(&client), maintenance_status.clone(), reindex_btn);
 
         let refresh_plugins_cb = Rc::new({
             let client = Rc::clone(&client);
-            let plugins_status = plugins_status.clone();
+            let plugin_widgets = plugin_widgets.clone();
             let plugins_list = plugins_list.clone();
             move || {
                 refresh_plugins(
                     Rc::clone(&client),
-                    plugins_status.clone(),
+                    plugin_widgets.clone(),
                     plugins_list.clone(),
                 )
             }
@@ -422,9 +447,6 @@ fn gather_config_from_widgets(
 
 fn apply_vault_settings_form(settings: &VaultSettings, widgets: &VaultWidgets) {
     widgets
-        .plugins_enabled_switch
-        .set_active(settings.plugins_enabled);
-    widgets
         .file_visibility_entry
         .set_text(&settings.file_visibility);
     widgets
@@ -437,10 +459,15 @@ fn apply_vault_settings_form(settings: &VaultSettings, widgets: &VaultWidgets) {
 
 fn current_vault_settings_form(widgets: &VaultWidgets) -> VaultSettingsForm {
     VaultSettingsForm {
-        plugins_enabled: widgets.plugins_enabled_switch.is_active(),
         file_visibility: widgets.file_visibility_entry.text().to_string(),
         font_size: widgets.font_size_spin.value_as_int(),
         tab_size: widgets.tab_size_spin.value_as_int(),
+    }
+}
+
+fn current_plugin_settings_form(widgets: &PluginWidgets) -> PluginSettingsForm {
+    PluginSettingsForm {
+        plugins_enabled: widgets.plugins_enabled_switch.is_active(),
     }
 }
 
@@ -512,12 +539,17 @@ fn yes_no(value: bool) -> &'static str {
 
 fn build_vault_settings_patch(form: &VaultSettingsForm) -> Value {
     json!({
-        "plugins_enabled": form.plugins_enabled,
         "file_visibility": form.file_visibility,
         "editor": {
             "font_size": form.font_size,
             "tab_size": form.tab_size,
         }
+    })
+}
+
+fn build_plugin_settings_patch(form: &PluginSettingsForm) -> Value {
+    json!({
+        "plugins_enabled": form.plugins_enabled,
     })
 }
 
@@ -619,11 +651,13 @@ fn wire_appearance_actions(
 fn wire_vault_actions(
     client: Rc<KnotdClient>,
     widgets: VaultWidgets,
+    plugin_widgets: PluginWidgets,
     save_button: gtk::Button,
     refresh_button: gtk::Button,
 ) {
     let save_client = Rc::clone(&client);
     let save_widgets = widgets.clone();
+    let save_plugin_widgets = plugin_widgets.clone();
     save_button.connect_clicked(move |_| {
         save_widgets
             .status_label
@@ -631,6 +665,7 @@ fn wire_vault_actions(
         let form = current_vault_settings_form(&save_widgets);
         let patch = build_vault_settings_patch(&form);
         let widgets = save_widgets.clone();
+        let plugin_widgets = save_plugin_widgets.clone();
         let client = save_client.as_ref().clone();
         async_bridge::run_background(move || {
             client
@@ -640,6 +675,9 @@ fn wire_vault_actions(
         .attach_local(move |result| match result {
             Ok(settings) => {
                 apply_vault_settings_form(&settings, &widgets);
+                plugin_widgets
+                    .plugins_enabled_switch
+                    .set_active(settings.plugins_enabled);
                 widgets.status_label.set_label("Saved vault settings.");
             }
             Err(error) => {
@@ -652,51 +690,98 @@ fn wire_vault_actions(
 
     let refresh_client = Rc::clone(&client);
     let refresh_widgets = widgets.clone();
+    let refresh_plugin_widgets = plugin_widgets.clone();
     refresh_button.connect_clicked(move |_| {
-        refresh_vault_settings(Rc::clone(&refresh_client), refresh_widgets.clone());
+        refresh_vault_settings(
+            Rc::clone(&refresh_client),
+            refresh_widgets.clone(),
+            refresh_plugin_widgets.clone(),
+        );
     });
 }
 
-fn refresh_vault_settings(client: Rc<KnotdClient>, widgets: VaultWidgets) {
+fn refresh_vault_settings(
+    client: Rc<KnotdClient>,
+    widgets: VaultWidgets,
+    plugin_widgets: PluginWidgets,
+) {
     widgets.status_label.set_label("Loading vault settings...");
     let client = client.as_ref().clone();
     async_bridge::run_background(move || client.get_vault_settings().map_err(|e| e.to_string()))
         .attach_local(move |result| match result {
             Ok(settings) => {
                 apply_vault_settings_form(&settings, &widgets);
+                plugin_widgets
+                    .plugins_enabled_switch
+                    .set_active(settings.plugins_enabled);
                 widgets.status_label.set_label("Loaded vault settings.");
             }
             Err(error) => {
                 widgets
                     .status_label
                     .set_label(&format!("Failed to load vault settings: {}", error));
+                plugin_widgets
+                    .status_label
+                    .set_label(&format!("Failed to load plugin settings: {}", error));
             }
         });
 }
 
 fn wire_plugins_actions(
     client: Rc<KnotdClient>,
-    status_label: gtk::Label,
+    widgets: PluginWidgets,
     plugins_list: gtk::ListBox,
+    save_button: gtk::Button,
     refresh_button: gtk::Button,
 ) {
+    let save_client = Rc::clone(&client);
+    let save_widgets = widgets.clone();
+    save_button.connect_clicked(move |_| {
+        save_widgets
+            .status_label
+            .set_label("Saving plugin settings...");
+        let form = current_plugin_settings_form(&save_widgets);
+        let patch = build_plugin_settings_patch(&form);
+        let widgets = save_widgets.clone();
+        let client = save_client.as_ref().clone();
+        async_bridge::run_background(move || {
+            client
+                .update_vault_settings(patch)
+                .map_err(|e| e.to_string())
+        })
+        .attach_local(move |result| match result {
+            Ok(settings) => {
+                widgets
+                    .plugins_enabled_switch
+                    .set_active(settings.plugins_enabled);
+                widgets.status_label.set_label("Saved plugin settings.");
+            }
+            Err(error) => {
+                widgets
+                    .status_label
+                    .set_label(&format!("Failed to save plugin settings: {}", error));
+            }
+        });
+    });
+
+    let refresh_widgets = widgets.clone();
     refresh_button.connect_clicked(move |_| {
         refresh_plugins(
             Rc::clone(&client),
-            status_label.clone(),
+            refresh_widgets.clone(),
             plugins_list.clone(),
         );
     });
 }
 
-fn refresh_plugins(client: Rc<KnotdClient>, status_label: gtk::Label, plugins_list: gtk::ListBox) {
-    status_label.set_label("Loading plugins...");
+fn refresh_plugins(client: Rc<KnotdClient>, widgets: PluginWidgets, plugins_list: gtk::ListBox) {
+    widgets.status_label.set_label("Loading plugins...");
     let client = client.as_ref().clone();
     async_bridge::run_background(move || client.list_vault_plugins().map_err(|e| e.to_string()))
         .attach_local(move |result| match result {
             Ok(plugins) => {
                 build_plugin_rows(&plugins, &plugins_list);
-                status_label.set_label(if plugins.is_empty() {
+                widgets.status_label.set_label(if plugins.is_empty() {
                     "No plugins reported by knotd."
                 } else {
                     "Loaded plugin state."
@@ -704,7 +789,9 @@ fn refresh_plugins(client: Rc<KnotdClient>, status_label: gtk::Label, plugins_li
             }
             Err(error) => {
                 build_plugin_rows(&[], &plugins_list);
-                status_label.set_label(&format!("Failed to load plugins: {}", error));
+                widgets
+                    .status_label
+                    .set_label(&format!("Failed to load plugins: {}", error));
             }
         });
 }
@@ -750,7 +837,6 @@ mod tests {
     #[test]
     fn vault_settings_patch_only_includes_editable_fields() {
         let patch = build_vault_settings_patch(&VaultSettingsForm {
-            plugins_enabled: true,
             file_visibility: "visible".to_string(),
             font_size: 18,
             tab_size: 4,
@@ -759,12 +845,25 @@ mod tests {
         assert_eq!(
             patch,
             json!({
-                "plugins_enabled": true,
                 "file_visibility": "visible",
                 "editor": {
                     "font_size": 18,
                     "tab_size": 4
                 }
+            })
+        );
+    }
+
+    #[test]
+    fn plugin_settings_patch_only_includes_master_toggle() {
+        let patch = build_plugin_settings_patch(&PluginSettingsForm {
+            plugins_enabled: true,
+        });
+
+        assert_eq!(
+            patch,
+            json!({
+                "plugins_enabled": true
             })
         );
     }

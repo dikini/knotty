@@ -68,7 +68,8 @@ pub struct VaultPluginInfo {
 - settings load asynchronously
 - settings edits are explicit and reviewable
 - app-level GTK preferences persist in `~/.config/knot/knotty.toml`
-- plugin state is shown clearly even if toggling is initially read-only
+- plugin state is shown clearly, and the master vault-level `plugins_enabled` switch is editable from the `Plugins` section
+- the master `plugins_enabled` switch is edited from the `Plugins` section, even though it updates vault-backed daemon state
 - maintenance actions show progress or at least pending/success/error feedback
 - settings changes route through shell settings mode with the inspector hidden
 

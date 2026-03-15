@@ -33,6 +33,7 @@
 - Keep the split explicit:
   - vault settings -> `knotd`
   - app preferences -> `~/.config/knot/knotty.toml`
+- Keep the `plugins_enabled` master toggle in the `Plugins` section even though it still patches vault-backed daemon settings.
 
 ## knotd Calls Used By This Slice
 

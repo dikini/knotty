@@ -37,9 +37,11 @@ Provide the settings and maintenance surface required for functional parity with
 
 **FR-2**: Vault settings
 - GTK can load and update vault settings through the daemon contract.
+- The vault section focuses on vault behavior and editor/file rules.
 
 **FR-3**: Plugin visibility
 - GTK can list plugins and show their enablement/effective state.
+- The master `plugins_enabled` vault toggle must live in the `Plugins` section even though it is daemon-backed vault state.
 
 **FR-4**: Maintenance actions
 - GTK can run maintenance actions such as reindex with visible progress/result feedback.

@@ -41,6 +41,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Changed
 
+- Move the master vault `plugins_enabled` toggle from the `Vault` section into `Plugins` so the settings IA matches user expectations while keeping the underlying daemon patch flow unchanged.
 - Route the existing Preferences action into the real GTK settings surface instead of a dead placeholder path.
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
