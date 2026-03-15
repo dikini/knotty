@@ -19,3 +19,4 @@ This directory stores per-subsystem notes about future opportunities discovered 
 
 - `shell.md`: shell and search follow-up opportunities
 - `explorer.md`: explorer tree and mutation follow-up opportunities
+- `editor.md`: editor follow-up opportunities and possible structured-edit refinements

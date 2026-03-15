@@ -1,6 +1,6 @@
 use gtk::prelude::*;
 use libadwaita::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::client::{KnotdClient, NoteData};
@@ -21,6 +21,13 @@ type NoteLoadResult = Result<NoteData, String>;
 enum NoteLoadOrigin {
     ContextSelection,
     SearchSelection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirtyNoteSwitchResponse {
+    Cancel,
+    Discard,
+    Save,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,8 +329,7 @@ fn begin_note_load_with_dispatch<Dispatch, OnResult>(
     );
 }
 
-fn build_note_selection_handler(
-    origin: NoteLoadOrigin,
+fn build_note_load_dispatcher(
     client: Rc<KnotdClient>,
     editor: Rc<NoteEditor>,
     current_note: Rc<RefCell<Option<NoteData>>>,
@@ -336,8 +342,8 @@ fn build_note_selection_handler(
     inspector_rail: InspectorRail,
     tool_rail: ToolRail,
     search_view: Rc<SearchView>,
-) -> Box<dyn Fn(&str)> {
-    Box::new(move |path| {
+) -> Rc<dyn Fn(NoteLoadOrigin, &str)> {
+    Rc::new(move |origin, path| {
         log::info!("Loading note: {}", path);
         window.set_title(Some("Loading note... — Knot"));
         let load_path = path.to_string();
@@ -371,8 +377,9 @@ fn build_note_selection_handler(
                 let search_view = Rc::clone(&search_view);
                 move |result| match result {
                     Ok(note) => {
-                        window.set_title(Some(&format!("{} — Knot", note.title)));
                         editor.load_note(&note);
+                        let title = editor.current_title();
+                        sync_window_title(&window, Some(&title), false);
                         *current_note.borrow_mut() = Some(note);
                         let mut shell_state = shell_state.borrow_mut();
                         shell_state.set_note_selected(true);
@@ -398,10 +405,76 @@ fn build_note_selection_handler(
     })
 }
 
+#[derive(Clone)]
+struct NoteSwitchPromptHandles {
+    window: libadwaita::ApplicationWindow,
+    editor: Rc<NoteEditor>,
+    prompt_open: Rc<Cell<bool>>,
+    dispatch_note_load: Rc<dyn Fn(NoteLoadOrigin, &str)>,
+}
+
+fn present_dirty_note_switch_prompt(
+    handles: &NoteSwitchPromptHandles,
+    origin: NoteLoadOrigin,
+    path: &str,
+) {
+    if handles.prompt_open.replace(true) {
+        return;
+    }
+
+    let dialog = libadwaita::AlertDialog::new(
+        Some("Unsaved changes"),
+        Some("Save the current note before switching, discard your changes, or keep editing."),
+    );
+    dialog.add_responses(&[
+        ("cancel", "Keep editing"),
+        ("discard", "Discard changes"),
+        ("save", "Save and switch"),
+    ]);
+    dialog.set_close_response("cancel");
+    dialog.set_default_response(Some("save"));
+    dialog.set_response_appearance("discard", libadwaita::ResponseAppearance::Destructive);
+    dialog.set_response_appearance("save", libadwaita::ResponseAppearance::Suggested);
+
+    let prompt_open = Rc::clone(&handles.prompt_open);
+    let editor = Rc::clone(&handles.editor);
+    let dispatch_note_load = Rc::clone(&handles.dispatch_note_load);
+    let path = path.to_string();
+    dialog.choose(
+        &handles.window,
+        None::<&gio::Cancellable>,
+        move |response| {
+            prompt_open.set(false);
+            match dirty_note_switch_response(response.as_str()) {
+                DirtyNoteSwitchResponse::Cancel => {}
+                DirtyNoteSwitchResponse::Discard => {
+                    editor.discard_changes();
+                    dispatch_note_load(origin, &path);
+                }
+                DirtyNoteSwitchResponse::Save => {
+                    if let Err(error) = editor.save() {
+                        log::error!("Failed to save note before switching: {}", error);
+                        return;
+                    }
+                    dispatch_note_load(origin, &path);
+                }
+            }
+        },
+    );
+}
+
 fn should_route_loaded_note_to_notes(origin: NoteLoadOrigin, tool_mode: ToolMode) -> bool {
     matches!(tool_mode, ToolMode::Notes)
         || (matches!(origin, NoteLoadOrigin::SearchSelection)
             && matches!(tool_mode, ToolMode::Search))
+}
+
+fn dirty_note_switch_response(response: &str) -> DirtyNoteSwitchResponse {
+    match response {
+        "discard" => DirtyNoteSwitchResponse::Discard,
+        "save" => DirtyNoteSwitchResponse::Save,
+        _ => DirtyNoteSwitchResponse::Cancel,
+    }
 }
 
 fn focus_search_shell_state(shell_state: &mut ShellState) {
@@ -427,6 +500,23 @@ fn focus_search_shell(
     );
 }
 
+fn note_window_title(note_title: Option<&str>, modified: bool) -> String {
+    match note_title {
+        Some(title) if modified => format!("*{} — Knot", title),
+        Some(title) => format!("{} — Knot", title),
+        None => "Knot".to_string(),
+    }
+}
+
+fn sync_window_title(
+    window: &libadwaita::ApplicationWindow,
+    note_title: Option<&str>,
+    modified: bool,
+) {
+    let title = note_window_title(note_title, modified);
+    window.set_title(Some(&title));
+}
+
 fn clear_active_note(
     window: &libadwaita::ApplicationWindow,
     editor: &NoteEditor,
@@ -441,7 +531,7 @@ fn clear_active_note(
     search_view: &SearchView,
 ) {
     cancel_note_load(note_load_state, note_load_generation);
-    window.set_title(Some("Knot"));
+    sync_window_title(window, None, false);
     editor.clear();
     *current_note.borrow_mut() = None;
 
@@ -455,6 +545,33 @@ fn clear_active_note(
         inspector_rail,
         search_view,
     );
+}
+
+#[cfg(test)]
+fn resolve_note_switch_decision<Save>(
+    is_modified: bool,
+    requested: NoteSwitchDecision,
+    save_current_note: Save,
+) -> NoteSwitchDecision
+where
+    Save: FnOnce() -> Result<(), String>,
+{
+    if !is_modified {
+        return NoteSwitchDecision::Allow;
+    }
+
+    match requested {
+        NoteSwitchDecision::Allow => NoteSwitchDecision::Allow,
+        NoteSwitchDecision::Deny => NoteSwitchDecision::Deny,
+        NoteSwitchDecision::SaveThenAllow => match save_current_note() {
+            Ok(()) => NoteSwitchDecision::Allow,
+            Err(error) => {
+                log::error!("Failed to save note before switching: {}", error);
+                NoteSwitchDecision::Deny
+            }
+        },
+        NoteSwitchDecision::Prompt => NoteSwitchDecision::Prompt,
+    }
 }
 
 fn cancel_note_load(
@@ -718,9 +835,43 @@ impl KnotWindow {
             );
         });
         self.window.add_action(&action);
+
+        let action = gio::SimpleAction::new("save-note", None);
+        let startup_state = Rc::clone(&self.startup_state);
+        let editor = Rc::clone(&self.editor);
+        let current_note = Rc::clone(&self.current_note);
+        let window = self.window.clone();
+        action.connect_activate(move |_action, _param| {
+            if !startup_shell_chrome_visible(&startup_state.borrow()) {
+                return;
+            }
+            if let Err(error) = editor.save() {
+                log::error!("Failed to save note: {}", error);
+            }
+            let title = {
+                let current_note = current_note.borrow();
+                current_note.as_ref().map(|_| editor.current_title())
+            };
+            sync_window_title(&window, title.as_deref(), editor.is_modified());
+        });
+        self.window.add_action(&action);
     }
 
     fn setup_signals(&self) {
+        let window = self.window.clone();
+        let current_note = Rc::clone(&self.current_note);
+        let editor_for_modified = Rc::clone(&self.editor);
+        self.editor.connect_modified_changed({
+            let editor = Rc::clone(&editor_for_modified);
+            move |modified| {
+                let title = {
+                    let current_note = current_note.borrow();
+                    current_note.as_ref().map(|_| editor.current_title())
+                };
+                sync_window_title(&window, title.as_deref(), modified);
+            }
+        });
+
         // Tool mode changes
         let content_stack = self.content_stack.clone();
         let context_panel_ref = Rc::clone(&self.context_panel);
@@ -761,8 +912,7 @@ impl KnotWindow {
             );
         });
 
-        let context_note_selected = build_note_selection_handler(
-            NoteLoadOrigin::ContextSelection,
+        let dispatch_note_load = build_note_load_dispatcher(
             Rc::clone(&self.client),
             Rc::clone(&self.editor),
             Rc::clone(&self.current_note),
@@ -776,34 +926,52 @@ impl KnotWindow {
             self.tool_rail.clone(),
             Rc::clone(&self.search_view),
         );
-        self.context_panel
-            .connect_note_selected(move |path| context_note_selected(path));
-        let editor = Rc::clone(&self.editor);
-        self.context_panel.connect_note_switch_guard(move |_| {
-            if editor.is_modified() {
-                NoteSwitchDecision::Deny
-            } else {
+
+        let note_switch_prompt = NoteSwitchPromptHandles {
+            window: self.window.clone(),
+            editor: Rc::clone(&self.editor),
+            prompt_open: Rc::new(Cell::new(false)),
+            dispatch_note_load: Rc::clone(&dispatch_note_load),
+        };
+
+        self.context_panel.connect_note_selected({
+            let dispatch_note_load = Rc::clone(&dispatch_note_load);
+            move |path| dispatch_note_load(NoteLoadOrigin::ContextSelection, path)
+        });
+        self.context_panel.connect_note_switch_guard({
+            let editor = Rc::clone(&self.editor);
+            let note_switch_prompt = note_switch_prompt.clone();
+            move |path| {
+                if editor.is_modified() {
+                    present_dirty_note_switch_prompt(
+                        &note_switch_prompt,
+                        NoteLoadOrigin::ContextSelection,
+                        path,
+                    );
+                    return NoteSwitchDecision::Prompt;
+                }
+
                 NoteSwitchDecision::Allow
             }
         });
 
-        let search_note_selected = build_note_selection_handler(
-            NoteLoadOrigin::SearchSelection,
-            Rc::clone(&self.client),
-            Rc::clone(&self.editor),
-            Rc::clone(&self.current_note),
-            Rc::clone(&self.note_load_state),
-            Rc::clone(&self.note_load_generation),
-            Rc::clone(&self.shell_state),
-            self.window.clone(),
-            self.content_stack.clone(),
-            Rc::clone(&self.context_panel),
-            self.inspector_rail.clone(),
-            self.tool_rail.clone(),
-            Rc::clone(&self.search_view),
-        );
-        self.search_view
-            .connect_result_selected(move |path| search_note_selected(path));
+        self.search_view.connect_result_selected({
+            let editor = Rc::clone(&self.editor);
+            let note_switch_prompt = note_switch_prompt.clone();
+            let dispatch_note_load = Rc::clone(&dispatch_note_load);
+            move |path| {
+                if editor.is_modified() {
+                    present_dirty_note_switch_prompt(
+                        &note_switch_prompt,
+                        NoteLoadOrigin::SearchSelection,
+                        path,
+                    );
+                    return;
+                }
+
+                dispatch_note_load(NoteLoadOrigin::SearchSelection, path);
+            }
+        });
 
         let window = self.window.clone();
         let editor = Rc::clone(&self.editor);
@@ -1236,5 +1404,71 @@ mod tests {
             .expect("deferred result should be captured")();
 
         assert_eq!(*note_load_state.borrow(), RequestState::Idle);
+    }
+
+    #[test]
+    fn note_window_title_marks_dirty_active_note() {
+        assert_eq!(note_window_title(Some("Example"), false), "Example — Knot");
+        assert_eq!(note_window_title(Some("Example"), true), "*Example — Knot");
+        assert_eq!(note_window_title(None, false), "Knot");
+    }
+
+    #[test]
+    fn clean_note_switch_always_allows() {
+        let decision = resolve_note_switch_decision(false, NoteSwitchDecision::Deny, || Ok(()));
+
+        assert_eq!(decision, NoteSwitchDecision::Allow);
+    }
+
+    #[test]
+    fn dirty_note_switch_can_be_denied() {
+        let decision = resolve_note_switch_decision(true, NoteSwitchDecision::Deny, || Ok(()));
+
+        assert_eq!(decision, NoteSwitchDecision::Deny);
+    }
+
+    #[test]
+    fn dirty_note_switch_can_discard_and_allow() {
+        let decision = resolve_note_switch_decision(true, NoteSwitchDecision::Allow, || Ok(()));
+
+        assert_eq!(decision, NoteSwitchDecision::Allow);
+    }
+
+    #[test]
+    fn dirty_note_switch_can_save_then_allow() {
+        let decision =
+            resolve_note_switch_decision(true, NoteSwitchDecision::SaveThenAllow, || Ok(()));
+
+        assert_eq!(decision, NoteSwitchDecision::Allow);
+    }
+
+    #[test]
+    fn failed_save_then_switch_denies_navigation() {
+        let decision =
+            resolve_note_switch_decision(true, NoteSwitchDecision::SaveThenAllow, || {
+                Err("save failed".to_string())
+            });
+
+        assert_eq!(decision, NoteSwitchDecision::Deny);
+    }
+
+    #[test]
+    fn dirty_note_switch_response_maps_known_dialog_ids() {
+        assert_eq!(
+            dirty_note_switch_response("discard"),
+            DirtyNoteSwitchResponse::Discard
+        );
+        assert_eq!(
+            dirty_note_switch_response("save"),
+            DirtyNoteSwitchResponse::Save
+        );
+        assert_eq!(
+            dirty_note_switch_response("cancel"),
+            DirtyNoteSwitchResponse::Cancel
+        );
+        assert_eq!(
+            dirty_note_switch_response("unexpected"),
+            DirtyNoteSwitchResponse::Cancel
+        );
     }
 }

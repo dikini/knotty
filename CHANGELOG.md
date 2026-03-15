@@ -17,6 +17,8 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Expand GTK note DTOs to include runtime contract fields for mode availability, metadata, embeds, media, and request-state helpers for async UI flows.
 - Add a GTK-safe background bridge and migrate note loading to request-state-driven async execution.
 - Add a discoverable `docs/notes/` area for per-subsystem future opportunities and seed the shell follow-up notes.
+- Add the approved GTK editor design note and tighten the editor implementation plan around source-authoritative synchronization, fixed icon-only mode controls, and pinned meta fields.
+- Add the GTK editor slice with fixed icon mode routing, source-authoritative dirty/save handling, dirty note-switch prompting, baseline markdown commands, and pinned-plus-generic metadata editing.
 - Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
 - Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 - Restore explicit regression coverage for note-load cancellation after rebasing the explorer review fixes.
@@ -24,6 +26,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 ### Changed
 
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
+- Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
 
 ### Fixed
 
@@ -40,3 +43,5 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Prevent an in-flight note load from re-populating the editor after the note has been cleared or deleted by bumping the load generation in `clear_active_note`.
 - Remove unused `SimpleNoteList` that performed a blocking RPC call on the GTK main thread.
 - Clarify `select_tree_item` by removing the unused `suppress_note` parameter — note activation is always suppressed for programmatic selection.
+- Keep GTK editor discard behavior anchored to the last successful save, and preserve unsupported frontmatter lines during metadata edits instead of dropping them on round-trip.
+- Remove the stale note-switch allow-token path from the GTK editor flow so earlier approved switches cannot bypass a later dirty-note prompt for the same target.
