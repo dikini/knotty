@@ -1194,6 +1194,7 @@ mod tests {
         assert_eq!(shell_state.inspector_mode(), InspectorMode::Hidden);
     }
 
+    #[test]
     fn cancel_note_load_resets_state_to_idle_and_bumps_generation() {
         let note_load_state = Rc::new(RefCell::new(RequestState::loading()));
         let note_load_generation = Rc::new(RefCell::new(5_u64));
