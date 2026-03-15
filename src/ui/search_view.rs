@@ -156,6 +156,7 @@ impl SearchView {
         let widget = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .build();
+        widget.set_widget_name("knot.content.search");
 
         // Search entry
         let search_entry = gtk::SearchEntry::builder()
@@ -443,6 +444,11 @@ impl SearchView {
 
     pub fn grab_focus(&self) {
         self.search_entry.grab_focus();
+    }
+
+    pub fn query(&self) -> Option<String> {
+        let query = self.search_entry.text().trim().to_string();
+        (!query.is_empty()).then_some(query)
     }
 
     pub fn connect_result_selected<F>(&self, f: F)

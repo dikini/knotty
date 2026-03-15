@@ -107,7 +107,9 @@ impl SettingsView {
             .hexpand(true)
             .vexpand(true)
             .build();
+        widget.set_widget_name("knot.content.settings");
         let stack = gtk::Stack::builder().hexpand(true).vexpand(true).build();
+        stack.set_widget_name("knot.settings.stack");
         let on_preferences_changed: PreferencesChangedCallback = Rc::new(RefCell::new(None));
         let current_config = Rc::new(RefCell::new(initial_config.clone()));
 

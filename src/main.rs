@@ -12,6 +12,7 @@ mod ui;
 
 use cli::CliArgs;
 use client::KnotdClient;
+use ui::automation_controller;
 use ui::window::KnotWindow;
 
 // Global socket path storage
@@ -118,6 +119,13 @@ fn main() -> anyhow::Result<()> {
             let client = KnotdClient::with_socket_path(&socket_path);
             let window = Rc::new(KnotWindow::with_client(app, client));
             window.present();
+            automation_controller::register_window(&window);
+            let automation_api = automation_controller::protocol_api();
+            let _ = (
+                automation_api.describe,
+                automation_api.snapshot,
+                automation_api.dispatch,
+            );
             *slot = Some(window);
         });
     });

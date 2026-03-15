@@ -1,6 +1,8 @@
 //! GTK4 UI components for Knot.
 
 pub mod async_bridge;
+pub mod automation_controller;
+pub mod automation_state;
 pub mod context_panel;
 pub mod editor;
 pub mod explorer;

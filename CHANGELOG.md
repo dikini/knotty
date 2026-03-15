@@ -4,6 +4,15 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ## Unreleased
 
+### Added
+
+- gated GTK automation protocol types, controller registration, semantic snapshot projection, and action discovery scaffolding for the automation slice
+- GTK automation smoke-check and knotd handoff docs for the semantic automation protocol
+
+### Changed
+
+- added stable automation widget identifiers for the main shell surfaces and a visible automation-active indicator in the window header
+
 ### Fixed
 
 - Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
