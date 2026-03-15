@@ -109,7 +109,7 @@ impl ExplorerRowData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RefreshFollowUp {
     PreserveCurrent(Option<ExplorerSelection>),
     Focus(ExplorerSelection),
@@ -409,6 +409,24 @@ fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
     }
 }
 
+fn reset_empty_selection_state(
+    suppress_note_activation: &Rc<Cell<bool>>,
+    selected_item: &Rc<RefCell<Option<ExplorerSelection>>>,
+    on_selection_changed: &SelectionChangedCallback,
+) {
+    suppress_note_activation.set(false);
+    *selected_item.borrow_mut() = None;
+    emit_selection_changed(on_selection_changed, None);
+}
+
+fn handle_empty_selection(handles: &ExplorerHandles) {
+    reset_empty_selection_state(
+        &handles.suppress_note_activation,
+        &handles.selected_item,
+        &handles.on_selection_changed,
+    );
+}
+
 fn select_tree_item(handles: &ExplorerHandles, selection: &ExplorerSelection) -> bool {
     let Some(tree_path) = handles.path_index.borrow().get(selection.path()).cloned() else {
         return false;
@@ -572,6 +590,14 @@ fn fallback_selection_after_removal(selection: &ExplorerSelection) -> Option<Exp
     }
 }
 
+fn folder_removal_follow_up(path: &str) -> RefreshFollowUp {
+    fallback_selection_after_removal(&ExplorerSelection::Folder {
+        path: path.to_string(),
+    })
+    .map(RefreshFollowUp::FocusAndClear)
+    .unwrap_or(RefreshFollowUp::ClearSelection)
+}
+
 fn mutation_guard_allows(
     handles: &ExplorerHandles,
     path: &str,
@@ -708,8 +734,7 @@ impl ExplorerView {
         let handles_for_selection = handles.clone();
         tree_view.connect_cursor_changed(move |view| {
             let Some((model, iter)) = view.selection().selected() else {
-                *handles_for_selection.selected_item.borrow_mut() = None;
-                emit_selection_changed(&handles_for_selection.on_selection_changed, None);
+                handle_empty_selection(&handles_for_selection);
                 return;
             };
 
@@ -742,8 +767,7 @@ impl ExplorerView {
                     emit_status(&handles_for_selection.on_status_changed, &message, true);
                     match previous_selection {
                         Some(previous_selection) => {
-                    if !select_tree_item(&handles_for_selection, &previous_selection)
-                            {
+                            if !select_tree_item(&handles_for_selection, &previous_selection) {
                                 clear_selection_internal(&handles_for_selection, true);
                             }
                         }
@@ -913,11 +937,7 @@ impl ExplorerView {
                 );
             }
             ExplorerSelection::Folder { path } => {
-                let follow_up = fallback_selection_after_removal(&ExplorerSelection::Folder {
-                    path: path.clone(),
-                })
-                .map(RefreshFollowUp::Focus)
-                .unwrap_or(RefreshFollowUp::ClearSelection);
+                let follow_up = folder_removal_follow_up(&path);
                 run_mutation_job(
                     handles,
                     move |client| {
@@ -1283,6 +1303,44 @@ mod tests {
                 path: "guide.md".to_string(),
             }),
             None
+        );
+    }
+
+    #[test]
+    fn handle_empty_selection_clears_suppression_and_selection() {
+        let suppress_note_activation = Rc::new(Cell::new(true));
+        let selected_item = Rc::new(RefCell::new(Some(ExplorerSelection::Note {
+            path: "notes/example.md".to_string(),
+        })));
+        let selection_events = Rc::new(RefCell::new(Vec::new()));
+        let on_selection_changed: SelectionChangedCallback =
+            Rc::new(RefCell::new(Some(Box::new({
+                let selection_events = Rc::clone(&selection_events);
+                move |selection| selection_events.borrow_mut().push(selection)
+            }))));
+
+        reset_empty_selection_state(
+            &suppress_note_activation,
+            &selected_item,
+            &on_selection_changed,
+        );
+
+        assert!(!suppress_note_activation.get());
+        assert_eq!(*selected_item.borrow(), None);
+        assert_eq!(*selection_events.borrow(), vec![None]);
+    }
+
+    #[test]
+    fn folder_removal_focuses_parent_and_clears_active_note() {
+        assert_eq!(
+            folder_removal_follow_up("notes/projects"),
+            RefreshFollowUp::FocusAndClear(ExplorerSelection::Folder {
+                path: "notes".to_string(),
+            })
+        );
+        assert_eq!(
+            folder_removal_follow_up("projects"),
+            RefreshFollowUp::ClearSelection
         );
     }
 }

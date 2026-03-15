@@ -15,6 +15,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add a GTK-safe background bridge and migrate note loading to request-state-driven async execution.
 - Add a discoverable `docs/notes/` area for per-subsystem future opportunities and seed the shell follow-up notes.
 - Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
+- Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 
 ### Changed
 
