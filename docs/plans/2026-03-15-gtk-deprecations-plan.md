@@ -24,6 +24,54 @@
 - Prefer current supported GTK/libadwaita APIs over custom workaround layers.
 - Review-complete delivery should leave `cargo check` free of GTK/libadwaita deprecation warnings from repository code.
 
+## Current Inventory
+
+Captured from `cargo check` on `2026-03-15` in a clean worktree branched from `main`.
+
+### `src/ui/explorer.rs`
+
+- Deprecated tree model/storage:
+  - `gtk::TreeStore`
+  - `TreeStore::new`
+  - `TreeStore::insert`
+  - `TreeStore::set`
+  - `TreeStore::clear`
+- Deprecated tree view/selection APIs:
+  - `gtk::TreeView`
+  - `TreeView::builder`
+  - `TreeViewExt::selection`
+  - `TreeSelection::{selected, select_path, unselect_all}`
+  - `TreeViewExt::set_cursor`
+  - `TreeViewExt::expand_row`
+  - `TreeViewExt::{connect_row_expanded, connect_row_collapsed, connect_cursor_changed}`
+- Deprecated tree column/cell renderer APIs:
+  - `gtk::TreeViewColumn`
+  - `TreeViewColumn::builder`
+  - `TreeViewColumn::{pack_start, add_attribute}`
+  - `TreeViewExt::append_column`
+  - `gtk::CellRendererPixbuf`
+  - `gtk::CellRendererText`
+  - `CellRendererTextExt::set_ellipsize`
+- Deprecated tree model value/path APIs:
+  - `TreeModelExtManual::get_value`
+  - `TreeModelExt::path`
+
+### Replacement Direction
+
+- Replace `TreeStore` + `TreeView` with a modern GTK 4 list/tree stack.
+- Prefer:
+  - `gio::ListStore`
+  - `gtk::TreeListModel`
+  - `gtk::SingleSelection`
+  - `gtk::ListView`
+  - `gtk::SignalListItemFactory`
+  - `gtk::TreeExpander`
+- Preserve explorer-specific state in typed row helpers instead of tree-path/stringly widget state.
+
+### Out-of-Scope Warnings For This Slice
+
+- Existing non-GTK warnings such as dead code and general clippy/style findings remain tracked by `COMP-GTK-QUALITY-010`.
+
 ## Rust Guidance For This Slice
 
 - Replace deprecated widget families with small adapter layers only when they reduce churn; do not add abstraction for its own sake.

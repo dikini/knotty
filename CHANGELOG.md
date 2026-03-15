@@ -35,6 +35,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
+- Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
 
 ### Fixed
 

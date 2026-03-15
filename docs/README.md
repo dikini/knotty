@@ -29,6 +29,7 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 - The local source of truth for implementation is `docs/reference/`, not the upstream repository.
 - Review-driven future opportunities that are not part of the current slice should be recorded in `docs/notes/`.
 - When a slice completes, add or update the corresponding `docs/notes/<subsystem>.md` file for deferred cleanup or refinement opportunities.
+- GTK/libadwaita deprecation warnings in repository code are a maintenance signal and should not be normalized as expected output.
 - Each slice must follow TDD: write failing tests, verify red, implement, verify green, review, fix, repeat.
 - Each slice ends with a full relevant test run, a review pass, and fixes before completion.
 - Commit only after the slice test gate is green.

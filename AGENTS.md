@@ -58,3 +58,4 @@ When you identify non-blocking future work during implementation or review, add 
 
 - Do not introduce new uses of deprecated GTK or libadwaita APIs when a supported replacement exists in the current project baseline.
 - When touching code that already relies on deprecated GTK APIs, prefer migrating that usage as part of the change if the replacement stays within the slice's scope.
+- Treat GTK/libadwaita deprecation warnings from repository code as a maintenance signal that must be driven back to zero within the owning slice, not as background noise.

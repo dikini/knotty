@@ -1,13 +1,8 @@
 //! Explorer tree rendering and mutation dispatch.
-//!
-//! The current slice keeps `TreeView`/`TreeStore` temporarily even though GTK marks
-//! them deprecated. Replacing the widget family cleanly would spill across shell
-//! and mutation flows, so this module isolates the deprecated usage while locking
-//! explorer behavior behind deterministic adapters and tests.
 
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -15,13 +10,6 @@ use tracing as log;
 
 use crate::client::{ExplorerFolderNode, ExplorerNoteNode, ExplorerTree, KnotdClient};
 use crate::ui::async_bridge;
-
-const COL_ICON: u32 = 0;
-const COL_DISPLAY_NAME: u32 = 1;
-const COL_PATH: u32 = 2;
-const COL_IS_FOLDER: u32 = 3;
-const COL_EXPANDED: u32 = 4;
-const COL_BADGE: u32 = 5;
 
 type NoteSelectedCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
 type FolderToggledCallback = Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>>;
@@ -111,6 +99,32 @@ impl ExplorerRowData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ExplorerItem {
+    row: ExplorerRowData,
+    children: Vec<ExplorerItem>,
+}
+
+impl ExplorerItem {
+    fn from_folder(folder: &ExplorerFolderNode) -> Self {
+        let mut children = Vec::with_capacity(folder.folders.len() + folder.notes.len());
+        children.extend(folder.folders.iter().map(Self::from_folder));
+        children.extend(folder.notes.iter().map(Self::from_note));
+
+        Self {
+            row: ExplorerRowData::from_folder(folder),
+            children,
+        }
+    }
+
+    fn from_note(note: &ExplorerNoteNode) -> Self {
+        Self {
+            row: ExplorerRowData::from_note(note),
+            children: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RefreshFollowUp {
     PreserveCurrent(Option<ExplorerSelection>),
     Focus(ExplorerSelection),
@@ -121,10 +135,12 @@ enum RefreshFollowUp {
 
 #[derive(Clone)]
 struct ExplorerHandles {
-    tree_view: gtk::TreeView,
-    store: gtk::TreeStore,
+    selection_model: gtk::SingleSelection,
+    tree_model: Rc<RefCell<Option<gtk::TreeListModel>>>,
     client: Rc<KnotdClient>,
-    path_index: Rc<RefCell<HashMap<String, gtk::TreePath>>>,
+    path_index: Rc<RefCell<HashMap<String, u32>>>,
+    observed_rows: Rc<RefCell<HashSet<usize>>>,
+    folder_persistence_handler: FolderPersistenceHandler,
     on_note_selected: NoteSelectedCallback,
     on_folder_toggled: FolderToggledCallback,
     on_selection_changed: SelectionChangedCallback,
@@ -170,93 +186,9 @@ fn folder_toggle_request(row: &ExplorerRowData, expanded: bool) -> Option<(Strin
     }
 }
 
-fn read_row_data(store: &gtk::TreeStore, iter: &gtk::TreeIter) -> ExplorerRowData {
-    let icon_name = store
-        .get_value(iter, COL_ICON as i32)
-        .get()
-        .unwrap_or_default();
-    let display_name = store
-        .get_value(iter, COL_DISPLAY_NAME as i32)
-        .get()
-        .unwrap_or_default();
-    let path = store
-        .get_value(iter, COL_PATH as i32)
-        .get()
-        .unwrap_or_default();
-    let is_folder = store
-        .get_value(iter, COL_IS_FOLDER as i32)
-        .get()
-        .unwrap_or(false);
-    let expanded = store
-        .get_value(iter, COL_EXPANDED as i32)
-        .get()
-        .unwrap_or(false);
-    let badge = store
-        .get_value(iter, COL_BADGE as i32)
-        .get()
-        .unwrap_or_default();
-
-    let kind = if is_folder {
-        ExplorerRowKind::Folder { expanded }
-    } else {
-        ExplorerRowKind::Note
-    };
-
-    ExplorerRowData {
-        icon_name,
-        display_name,
-        path,
-        badge,
-        kind,
-    }
-}
-
-fn append_row(
-    store: &gtk::TreeStore,
-    path_index: &Rc<RefCell<HashMap<String, gtk::TreePath>>>,
-    parent: Option<&gtk::TreeIter>,
-    row: &ExplorerRowData,
-) -> gtk::TreeIter {
-    let iter = store.insert(parent, -1);
-    let (is_folder, expanded) = match row.kind {
-        ExplorerRowKind::Folder { expanded } => (true, expanded),
-        ExplorerRowKind::Note => (false, false),
-    };
-
-    store.set(
-        &iter,
-        &[
-            (COL_ICON, &row.icon_name),
-            (COL_DISPLAY_NAME, &row.display_name),
-            (COL_PATH, &row.path),
-            (COL_IS_FOLDER, &is_folder),
-            (COL_EXPANDED, &expanded),
-            (COL_BADGE, &row.badge),
-        ],
-    );
-    path_index
-        .borrow_mut()
-        .insert(row.path.clone(), store.path(&iter));
-    iter
-}
-
 fn emit_note_selection_request(on_note_selected: &NoteSelectedCallback, path: &str) {
     if let Some(ref cb) = *on_note_selected.borrow() {
         cb(path);
-    }
-}
-
-fn emit_folder_toggle_request(
-    persistence_handler: &FolderPersistenceHandler,
-    on_folder_toggled: &FolderToggledCallback,
-    row: &ExplorerRowData,
-    expanded: bool,
-) {
-    if let Some((path, expanded)) = folder_toggle_request(row, expanded) {
-        persistence_handler(path.as_str(), expanded);
-        if let Some(ref cb) = *on_folder_toggled.borrow() {
-            cb(&path, expanded);
-        }
     }
 }
 
@@ -402,15 +334,6 @@ fn set_silent_note_activation(suppress_note_activation: &Rc<Cell<bool>>) {
     suppress_note_activation.set(true);
 }
 
-fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
-    handles.suppress_note_activation.set(true);
-    handles.tree_view.selection().unselect_all();
-    *handles.selected_item.borrow_mut() = None;
-    if notify {
-        emit_selection_changed(&handles.on_selection_changed, None);
-    }
-}
-
 fn reset_empty_selection_state(
     suppress_note_activation: &Rc<Cell<bool>>,
     selected_item: &Rc<RefCell<Option<ExplorerSelection>>>,
@@ -429,30 +352,215 @@ fn handle_empty_selection(handles: &ExplorerHandles) {
     );
 }
 
+fn expanded_folder_paths(folder: &ExplorerFolderNode) -> Vec<String> {
+    fn collect(folder: &ExplorerFolderNode, output: &mut Vec<String>) {
+        if folder.expanded {
+            output.push(folder.path.clone());
+        }
+        for child in &folder.folders {
+            collect(child, output);
+        }
+    }
+
+    let mut output = Vec::new();
+    collect(folder, &mut output);
+    output
+}
+
+fn selection_expansion_paths(selection: &ExplorerSelection) -> Vec<String> {
+    if selection.path().trim().is_empty() {
+        return Vec::new();
+    }
+
+    let target_parent = match selection {
+        ExplorerSelection::Note { path } | ExplorerSelection::Folder { path } => {
+            parent_directory(path)
+        }
+    };
+
+    let mut paths = vec![String::new()];
+    if target_parent.is_empty() {
+        return paths;
+    }
+
+    let mut current = String::new();
+    for segment in target_parent
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+    {
+        current = join_container_path(&current, segment);
+        paths.push(current.clone());
+    }
+    paths
+}
+
+fn build_list_store(items: &[ExplorerItem]) -> gio::ListStore {
+    let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+    for item in items {
+        store.append(&glib::BoxedAnyObject::new(item.clone()));
+    }
+    store
+}
+
+fn tree_root_items(tree: &ExplorerTree) -> Vec<ExplorerItem> {
+    vec![ExplorerItem::from_folder(&tree.root)]
+}
+
+fn child_model_for_object(item: &glib::Object) -> Option<gio::ListModel> {
+    let boxed = item.clone().downcast::<glib::BoxedAnyObject>().ok()?;
+    let children = {
+        let borrowed = boxed.borrow::<ExplorerItem>();
+        borrowed.children.clone()
+    };
+
+    if children.is_empty() {
+        None
+    } else {
+        Some(build_list_store(&children).upcast())
+    }
+}
+
+fn row_data_from_tree_list_row(row: &gtk::TreeListRow) -> Option<ExplorerRowData> {
+    let item = row.item()?;
+    let boxed = item.downcast::<glib::BoxedAnyObject>().ok()?;
+    let data = boxed.borrow::<ExplorerItem>();
+    Some(data.row.clone())
+}
+
+fn rebuild_path_index(handles: &ExplorerHandles) {
+    let mut path_index = HashMap::new();
+    let Some(model) = handles.tree_model.borrow().clone() else {
+        *handles.path_index.borrow_mut() = path_index;
+        return;
+    };
+
+    let count = model.n_items();
+    for position in 0..count {
+        let Some(row) = model.row(position) else {
+            continue;
+        };
+        let Some(data) = row_data_from_tree_list_row(&row) else {
+            continue;
+        };
+        path_index.insert(data.path.clone(), position);
+    }
+
+    *handles.path_index.borrow_mut() = path_index;
+}
+
+fn set_folder_expanded_internal(
+    handles: &ExplorerHandles,
+    path: &str,
+    expanded: bool,
+    persist: bool,
+) -> bool {
+    rebuild_path_index(handles);
+    let Some(position) = handles.path_index.borrow().get(path).copied() else {
+        return false;
+    };
+    let Some(model) = handles.tree_model.borrow().clone() else {
+        return false;
+    };
+    let Some(row) = model.row(position) else {
+        return false;
+    };
+    let Some(data) = row_data_from_tree_list_row(&row) else {
+        return false;
+    };
+    if !matches!(data.kind, ExplorerRowKind::Folder { .. }) {
+        return false;
+    }
+    if row.is_expanded() == expanded {
+        return true;
+    }
+
+    if !persist {
+        let depth = handles.suppress_folder_persistence_depth.get();
+        handles
+            .suppress_folder_persistence_depth
+            .set(depth.saturating_add(1));
+        row.set_expanded(expanded);
+        handles.suppress_folder_persistence_depth.set(depth);
+    } else {
+        row.set_expanded(expanded);
+    }
+    true
+}
+
+fn observe_visible_rows(handles: &ExplorerHandles) {
+    let Some(model) = handles.tree_model.borrow().clone() else {
+        return;
+    };
+
+    for position in 0..model.n_items() {
+        let Some(row) = model.row(position) else {
+            continue;
+        };
+        let Some(data) = row_data_from_tree_list_row(&row) else {
+            continue;
+        };
+        if !matches!(data.kind, ExplorerRowKind::Folder { .. }) {
+            continue;
+        }
+
+        let key = row.as_ptr() as usize;
+        if !handles.observed_rows.borrow_mut().insert(key) {
+            continue;
+        }
+
+        let handles_for_row = handles.clone();
+        row.connect_expanded_notify(move |row| {
+            if handles_for_row.suppress_folder_persistence_depth.get() > 0 {
+                return;
+            }
+            let Some(row_data) = row_data_from_tree_list_row(row) else {
+                return;
+            };
+            if let Some((path, expanded)) = folder_toggle_request(&row_data, row.is_expanded()) {
+                (handles_for_row.folder_persistence_handler)(path.as_str(), expanded);
+                if let Some(ref cb) = *handles_for_row.on_folder_toggled.borrow() {
+                    cb(&path, expanded);
+                }
+            }
+        });
+    }
+}
+
+fn clear_selection_internal(handles: &ExplorerHandles, notify: bool) {
+    let had_selection = handles.selection_model.selected() != gtk::INVALID_LIST_POSITION;
+    handles.suppress_note_activation.set(true);
+    handles
+        .selection_model
+        .set_selected(gtk::INVALID_LIST_POSITION);
+    if !had_selection {
+        *handles.selected_item.borrow_mut() = None;
+        if notify {
+            emit_selection_changed(&handles.on_selection_changed, None);
+        }
+        handles.suppress_note_activation.set(false);
+    }
+}
+
 fn select_tree_item(handles: &ExplorerHandles, selection: &ExplorerSelection) -> bool {
-    let Some(tree_path) = handles.path_index.borrow().get(selection.path()).cloned() else {
+    for path in selection_expansion_paths(selection) {
+        let _ = set_folder_expanded_internal(handles, &path, true, false);
+    }
+
+    rebuild_path_index(handles);
+    let Some(position) = handles.path_index.borrow().get(selection.path()).copied() else {
         return false;
     };
 
     let current = handles.selected_item.borrow().clone();
     let selection_changed = current.as_ref() != Some(selection);
-    if selection_changed {
-        set_silent_note_activation(&handles.suppress_note_activation);
-    }
-
-    handles.tree_view.selection().select_path(&tree_path);
-    gtk::prelude::TreeViewExt::set_cursor(
-        &handles.tree_view,
-        &tree_path,
-        None::<&gtk::TreeViewColumn>,
-        false,
-    );
-
     if !selection_changed {
         *handles.selected_item.borrow_mut() = Some(selection.clone());
         emit_selection_changed(&handles.on_selection_changed, Some(selection.clone()));
+        return true;
     }
 
+    set_silent_note_activation(&handles.suppress_note_activation);
+    handles.selection_model.set_selected(position);
     true
 }
 
@@ -482,42 +590,31 @@ fn apply_refresh_follow_up(handles: &ExplorerHandles, follow_up: RefreshFollowUp
     }
 }
 
-fn add_folder_node(
-    handles: &ExplorerHandles,
-    parent: Option<&gtk::TreeIter>,
-    folder: &ExplorerFolderNode,
-) {
-    let row = ExplorerRowData::from_folder(folder);
-    let iter = append_row(&handles.store, &handles.path_index, parent, &row);
-
-    for subfolder in &folder.folders {
-        add_folder_node(handles, Some(&iter), subfolder);
-    }
-
-    for note in &folder.notes {
-        add_note_node(handles, &iter, note);
-    }
-
-    if folder.expanded {
-        let path = handles.store.path(&iter);
-        let depth = handles.suppress_folder_persistence_depth.get();
-        handles
-            .suppress_folder_persistence_depth
-            .set(depth.saturating_add(1));
-        handles.tree_view.expand_row(&path, false);
-        handles.suppress_folder_persistence_depth.set(depth);
-    }
-}
-
-fn add_note_node(handles: &ExplorerHandles, parent: &gtk::TreeIter, note: &ExplorerNoteNode) {
-    let row = ExplorerRowData::from_note(note);
-    append_row(&handles.store, &handles.path_index, Some(parent), &row);
-}
-
 fn load_explorer_tree(handles: &ExplorerHandles, tree: &ExplorerTree) {
-    handles.store.clear();
-    handles.path_index.borrow_mut().clear();
-    add_folder_node(handles, None, &tree.root);
+    let root_store = build_list_store(&tree_root_items(tree));
+    let tree_model = gtk::TreeListModel::new(root_store, false, false, child_model_for_object);
+
+    handles.observed_rows.borrow_mut().clear();
+    *handles.tree_model.borrow_mut() = Some(tree_model.clone());
+    handles
+        .selection_model
+        .set_selected(gtk::INVALID_LIST_POSITION);
+    handles.selection_model.set_model(Some(&tree_model));
+
+    let handles_for_items = handles.clone();
+    tree_model.connect_items_changed(move |_, _, _, _| {
+        rebuild_path_index(&handles_for_items);
+        observe_visible_rows(&handles_for_items);
+    });
+
+    rebuild_path_index(handles);
+    observe_visible_rows(handles);
+
+    for path in expanded_folder_paths(&tree.root) {
+        let _ = set_folder_expanded_internal(handles, &path, true, false);
+    }
+
+    rebuild_path_index(handles);
 }
 
 fn refresh_with_follow_up(handles: ExplorerHandles, follow_up: RefreshFollowUp) {
@@ -614,6 +711,48 @@ fn mutation_guard_allows(
     }
 }
 
+fn bind_factory_row(list_item: &gtk::ListItem) {
+    let Some(expander_widget) = list_item.child() else {
+        return;
+    };
+    let Ok(expander) = expander_widget.downcast::<gtk::TreeExpander>() else {
+        return;
+    };
+    let Some(row_object) = list_item.item() else {
+        return;
+    };
+    let Ok(row) = row_object.downcast::<gtk::TreeListRow>() else {
+        return;
+    };
+    expander.set_list_row(Some(&row));
+
+    let Some(container_widget) = expander.child() else {
+        return;
+    };
+    let Ok(container) = container_widget.downcast::<gtk::Box>() else {
+        return;
+    };
+    let Some(icon_widget) = container.first_child() else {
+        return;
+    };
+    let Ok(icon) = icon_widget.downcast::<gtk::Image>() else {
+        return;
+    };
+    let Some(label_widget) = icon.next_sibling() else {
+        return;
+    };
+    let Ok(label) = label_widget.downcast::<gtk::Label>() else {
+        return;
+    };
+
+    let Some(data) = row_data_from_tree_list_row(&row) else {
+        return;
+    };
+    icon.set_icon_name(Some(&data.icon_name));
+    label.set_label(&data.display_name);
+    expander.set_hide_expander(!matches!(data.kind, ExplorerRowKind::Folder { .. }));
+}
+
 impl ExplorerView {
     pub fn new(client: Rc<KnotdClient>) -> Self {
         let persistence_handler: FolderPersistenceHandler = {
@@ -646,48 +785,51 @@ impl ExplorerView {
         client: Rc<KnotdClient>,
         persistence_handler: FolderPersistenceHandler,
     ) -> Self {
-        let store = gtk::TreeStore::new(&[
-            String::static_type(),
-            String::static_type(),
-            String::static_type(),
-            bool::static_type(),
-            bool::static_type(),
-            String::static_type(),
-        ]);
+        let factory = gtk::SignalListItemFactory::new();
+        factory.connect_setup(|_, list_item| {
+            let Ok(list_item) = list_item.clone().downcast::<gtk::ListItem>() else {
+                return;
+            };
+            let expander = gtk::TreeExpander::new();
+            let row_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(6)
+                .build();
+            let icon = gtk::Image::new();
+            let label = gtk::Label::builder().xalign(0.0).hexpand(true).build();
+            label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            row_box.append(&icon);
+            row_box.append(&label);
+            expander.set_child(Some(&row_box));
+            list_item.set_child(Some(&expander));
+        });
+        factory.connect_bind(|_, list_item| {
+            let Ok(list_item) = list_item.clone().downcast::<gtk::ListItem>() else {
+                return;
+            };
+            bind_factory_row(&list_item);
+        });
 
-        let tree_view = gtk::TreeView::builder()
-            .model(&store)
-            .headers_visible(false)
-            .build();
+        let selection_model = gtk::SingleSelection::new(None::<gio::ListModel>);
+        selection_model.set_autoselect(false);
+        selection_model.set_can_unselect(true);
 
-        let icon_renderer = gtk::CellRendererPixbuf::new();
-        let icon_column = gtk::TreeViewColumn::builder().title("").build();
-        icon_column.pack_start(&icon_renderer, false);
-        icon_column.add_attribute(&icon_renderer, "icon-name", 0);
-        tree_view.append_column(&icon_column);
-
-        let name_column = gtk::TreeViewColumn::builder()
-            .title("Name")
-            .expand(true)
-            .build();
-
-        let text_renderer = gtk::CellRendererText::new();
-        text_renderer.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        name_column.pack_start(&text_renderer, true);
-        name_column.add_attribute(&text_renderer, "text", 1);
-        tree_view.append_column(&name_column);
+        let list_view = gtk::ListView::new(Some(selection_model.clone()), Some(factory));
+        list_view.set_vexpand(true);
 
         let scrolled = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vexpand(true)
-            .child(&tree_view)
+            .child(&list_view)
             .build();
 
         let handles = ExplorerHandles {
-            tree_view: tree_view.clone(),
-            store: store.clone(),
+            selection_model: selection_model.clone(),
+            tree_model: Rc::new(RefCell::new(None)),
             client,
             path_index: Rc::new(RefCell::new(HashMap::new())),
+            observed_rows: Rc::new(RefCell::new(HashSet::new())),
+            folder_persistence_handler: persistence_handler,
             on_note_selected: Rc::new(RefCell::new(None)),
             on_folder_toggled: Rc::new(RefCell::new(None)),
             on_selection_changed: Rc::new(RefCell::new(None)),
@@ -700,52 +842,28 @@ impl ExplorerView {
             suppress_note_activation: Rc::new(Cell::new(false)),
         };
 
-        let store_for_expand = store.clone();
-        let persist_for_expand = Rc::clone(&persistence_handler);
-        let handles_for_expand = handles.clone();
-        tree_view.connect_row_expanded(move |_, iter, _| {
-            if handles_for_expand.suppress_folder_persistence_depth.get() > 0 {
-                return;
-            }
-            let row = read_row_data(&store_for_expand, iter);
-            emit_folder_toggle_request(
-                &persist_for_expand,
-                &handles_for_expand.on_folder_toggled,
-                &row,
-                true,
-            );
-        });
-
-        let store_for_collapse = store.clone();
-        let persist_for_collapse = Rc::clone(&persistence_handler);
-        let handles_for_collapse = handles.clone();
-        tree_view.connect_row_collapsed(move |_, iter, _| {
-            if handles_for_collapse.suppress_folder_persistence_depth.get() > 0 {
-                return;
-            }
-            let row = read_row_data(&store_for_collapse, iter);
-            emit_folder_toggle_request(
-                &persist_for_collapse,
-                &handles_for_collapse.on_folder_toggled,
-                &row,
-                false,
-            );
-        });
-
-        let store_for_selection = store.clone();
         let handles_for_selection = handles.clone();
-        tree_view.connect_cursor_changed(move |view| {
-            let Some((model, iter)) = view.selection().selected() else {
+        selection_model.connect_selected_notify(move |selection_model| {
+            if selection_model.selected() == gtk::INVALID_LIST_POSITION {
+                handle_empty_selection(&handles_for_selection);
+                return;
+            }
+
+            let Some(row_object) = selection_model.selected_item() else {
+                handle_empty_selection(&handles_for_selection);
+                return;
+            };
+            let Ok(row) = row_object.downcast::<gtk::TreeListRow>() else {
+                handle_empty_selection(&handles_for_selection);
+                return;
+            };
+            let Some(row_data) = row_data_from_tree_list_row(&row) else {
                 handle_empty_selection(&handles_for_selection);
                 return;
             };
 
-            let store = model
-                .downcast_ref::<gtk::TreeStore>()
-                .unwrap_or(&store_for_selection);
-            let row = read_row_data(store, &iter);
             let previous_selection = handles_for_selection.selected_item.borrow().clone();
-            let selection = row.selection();
+            let selection = row_data.selection();
             *handles_for_selection.selected_item.borrow_mut() = Some(selection.clone());
             emit_selection_changed(
                 &handles_for_selection.on_selection_changed,
@@ -759,7 +877,7 @@ impl ExplorerView {
                 return;
             }
 
-            if let Some(path) = note_selection_request(&row) {
+            if let Some(path) = note_selection_request(&row_data) {
                 let decision = dispatch_note_selection_request(
                     &handles_for_selection.on_note_selected,
                     &handles_for_selection.note_switch_guard,
@@ -785,19 +903,11 @@ impl ExplorerView {
         }
     }
 
-    pub fn load_explorer_tree(&self, tree: &ExplorerTree) {
-        load_explorer_tree(&self.handles, tree);
-    }
-
     pub fn refresh(&self) {
         refresh_with_follow_up(
             self.handles.clone(),
             RefreshFollowUp::PreserveCurrent(self.selected_item()),
         );
-    }
-
-    pub fn request_note_selection(&self, path: &str) {
-        request_note_selection_internal(&self.handles, path);
     }
 
     pub fn selected_item(&self) -> Option<ExplorerSelection> {
@@ -963,13 +1073,6 @@ impl ExplorerView {
         F: Fn(&str) + 'static,
     {
         *self.handles.on_note_selected.borrow_mut() = Some(Box::new(f));
-    }
-
-    pub fn connect_folder_toggled<F>(&self, f: F)
-    where
-        F: Fn(&str, bool) + 'static,
-    {
-        *self.handles.on_folder_toggled.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn connect_selection_changed<F>(&self, f: F)
@@ -1157,39 +1260,6 @@ mod tests {
     }
 
     #[test]
-    fn emit_folder_toggle_request_persists_and_notifies_once() {
-        let persisted = Rc::new(RefCell::new(Vec::new()));
-        let notified = Rc::new(RefCell::new(Vec::new()));
-        let persistence_handler: FolderPersistenceHandler = Rc::new({
-            let persisted = Rc::clone(&persisted);
-            move |path, expanded| persisted.borrow_mut().push((path.to_string(), expanded))
-        });
-        let on_folder_toggled: FolderToggledCallback = Rc::new(RefCell::new(None));
-        *on_folder_toggled.borrow_mut() = Some(Box::new({
-            let notified = Rc::clone(&notified);
-            move |path, expanded| notified.borrow_mut().push((path.to_string(), expanded))
-        }));
-        let row = ExplorerRowData::from_folder(&ExplorerFolderNode {
-            path: "notes/projects".to_string(),
-            name: "Projects".to_string(),
-            expanded: false,
-            folders: Vec::new(),
-            notes: Vec::new(),
-        });
-
-        emit_folder_toggle_request(&persistence_handler, &on_folder_toggled, &row, true);
-
-        assert_eq!(
-            *persisted.borrow(),
-            vec![("notes/projects".to_string(), true)]
-        );
-        assert_eq!(
-            *notified.borrow(),
-            vec![("notes/projects".to_string(), true)]
-        );
-    }
-
-    #[test]
     fn create_note_target_uses_selected_folder_or_note_parent() {
         let folder_selection = ExplorerSelection::Folder {
             path: "notes/projects".to_string(),
@@ -1347,6 +1417,63 @@ mod tests {
         assert_eq!(
             folder_removal_follow_up("projects"),
             RefreshFollowUp::ClearSelection
+        );
+    }
+
+    #[test]
+    fn expanded_folder_paths_follow_preorder_tree_order() {
+        let tree = ExplorerTree {
+            root: ExplorerFolderNode {
+                path: String::new(),
+                name: "root".to_string(),
+                expanded: true,
+                folders: vec![ExplorerFolderNode {
+                    path: "notes".to_string(),
+                    name: "notes".to_string(),
+                    expanded: true,
+                    folders: vec![ExplorerFolderNode {
+                        path: "notes/projects".to_string(),
+                        name: "projects".to_string(),
+                        expanded: false,
+                        folders: Vec::new(),
+                        notes: Vec::new(),
+                    }],
+                    notes: Vec::new(),
+                }],
+                notes: Vec::new(),
+            },
+            hidden_policy: "show".to_string(),
+        };
+
+        assert_eq!(
+            expanded_folder_paths(&tree.root),
+            vec![String::new(), "notes".to_string()]
+        );
+    }
+
+    #[test]
+    fn selection_expansion_paths_expand_folder_ancestors_only() {
+        assert_eq!(
+            selection_expansion_paths(&ExplorerSelection::Note {
+                path: "notes/projects/guide.md".to_string(),
+            }),
+            vec![
+                String::new(),
+                "notes".to_string(),
+                "notes/projects".to_string()
+            ]
+        );
+        assert_eq!(
+            selection_expansion_paths(&ExplorerSelection::Folder {
+                path: "notes/projects".to_string(),
+            }),
+            vec![String::new(), "notes".to_string()]
+        );
+        assert_eq!(
+            selection_expansion_paths(&ExplorerSelection::Folder {
+                path: String::new(),
+            }),
+            Vec::<String>::new()
         );
     }
 }
