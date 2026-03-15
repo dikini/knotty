@@ -13,6 +13,7 @@ use ui::window::KnotWindow;
 // Global socket path storage
 use std::sync::OnceLock;
 pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
+pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 const APP_ID: &str = "com.example.Knot";
 
@@ -38,6 +39,15 @@ fn main() -> anyhow::Result<()> {
     SOCKET_PATH
         .set(args.socket_path.clone())
         .map_err(|_| anyhow::anyhow!("Failed to set socket path"))?;
+
+    BACKGROUND_RUNTIME
+        .set(
+            tokio::runtime::Builder::new_multi_thread()
+                .thread_name("knot-gtk-bg")
+                .enable_all()
+                .build()?,
+        )
+        .map_err(|_| anyhow::anyhow!("Failed to initialize background runtime"))?;
 
     // Initialize tracing
     tracing_subscriber::fmt()

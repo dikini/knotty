@@ -433,7 +433,7 @@ pub struct NoteSummary {
     pub is_dimmed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteData {
     pub id: String,
     pub path: String,
@@ -449,14 +449,18 @@ pub struct NoteData {
     pub backlinks: Vec<Backlink>,
     #[serde(rename = "note_type")]
     pub note_type: Option<NoteType>,
+    pub available_modes: Option<NoteModeAvailability>,
+    pub metadata: Option<NoteMetadata>,
+    pub embed: Option<NoteEmbedDescriptor>,
+    pub media: Option<NoteMediaData>,
     #[serde(rename = "type_badge")]
     pub type_badge: Option<String>,
     #[serde(default)]
     pub is_dimmed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NoteType {
     Markdown,
     Youtube,
@@ -465,20 +469,48 @@ pub enum NoteType {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Heading {
-    pub level: i32,
-    pub text: String,
-    pub position: i32,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteModeAvailability {
+    pub meta: bool,
+    pub source: bool,
+    pub edit: bool,
+    pub view: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteMetadata {
+    #[serde(default)]
+    pub frontmatter: serde_json::Map<String, Value>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteEmbedDescriptor {
+    pub kind: String,
+    pub source: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteMediaData {
+    pub mime_type: String,
+    pub file_path: Option<String>,
+    pub thumbnail_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Heading {
+    pub level: u8,
+    pub text: String,
+    pub slug: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Backlink {
-    #[serde(rename = "source_path")]
-    pub source_path: String,
-    #[serde(rename = "source_title")]
-    pub source_title: String,
-    pub context: String,
+    pub path: String,
+    pub title: String,
+    pub excerpt: Option<String>,
 }
 
 // Search types
@@ -542,4 +574,152 @@ pub struct GraphNode {
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn base_note_payload() -> Value {
+        json!({
+            "id": "note-1",
+            "path": "notes/example.md",
+            "title": "Example",
+            "content": "# Example",
+            "created_at": 1730000000,
+            "modified_at": 1730000100,
+            "word_count": 2,
+            "headings": [],
+            "backlinks": [],
+            "note_type": "markdown",
+            "type_badge": "MD"
+        })
+    }
+
+    #[test]
+    fn note_data_deserializes_available_modes() {
+        let mut payload = base_note_payload();
+        payload["available_modes"] = json!({
+            "meta": true,
+            "source": true,
+            "edit": false,
+            "view": true
+        });
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.available_modes,
+            Some(NoteModeAvailability {
+                meta: true,
+                source: true,
+                edit: false,
+                view: true,
+            })
+        );
+    }
+
+    #[test]
+    fn note_data_deserializes_optional_media() {
+        let mut payload = base_note_payload();
+        payload["note_type"] = json!("pdf");
+        payload["media"] = json!({
+            "mime_type": "application/pdf",
+            "file_path": "/tmp/example.pdf",
+            "thumbnail_path": "/tmp/example.png"
+        });
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert!(matches!(note.note_type, Some(NoteType::Pdf)));
+        assert_eq!(
+            note.media,
+            Some(NoteMediaData {
+                mime_type: "application/pdf".to_string(),
+                file_path: Some("/tmp/example.pdf".to_string()),
+                thumbnail_path: Some("/tmp/example.png".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn note_data_deserializes_metadata_and_embed() {
+        let mut payload = base_note_payload();
+        payload["note_type"] = json!("youtube");
+        payload["metadata"] = json!({
+            "frontmatter": {
+                "title": "Example"
+            },
+            "tags": ["demo", "video"]
+        });
+        payload["embed"] = json!({
+            "kind": "youtube",
+            "source": "https://www.youtube.com/watch?v=test",
+            "title": "Demo Video"
+        });
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.metadata,
+            Some(NoteMetadata {
+                frontmatter: serde_json::Map::from_iter([(
+                    "title".to_string(),
+                    Value::String("Example".to_string()),
+                )]),
+                tags: vec!["demo".to_string(), "video".to_string()],
+            })
+        );
+        assert_eq!(
+            note.embed,
+            Some(NoteEmbedDescriptor {
+                kind: "youtube".to_string(),
+                source: "https://www.youtube.com/watch?v=test".to_string(),
+                title: Some("Demo Video".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn note_data_deserializes_non_empty_headings_and_backlinks() {
+        let mut payload = base_note_payload();
+        payload["headings"] = json!([
+            {
+                "level": 2,
+                "text": "Section One",
+                "slug": "section-one"
+            }
+        ]);
+        payload["backlinks"] = json!([
+            {
+                "path": "notes/other.md",
+                "title": "Other Note",
+                "excerpt": "References Example"
+            }
+        ]);
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.headings,
+            vec![Heading {
+                level: 2,
+                text: "Section One".to_string(),
+                slug: "section-one".to_string(),
+            }]
+        );
+        assert_eq!(
+            note.backlinks,
+            vec![Backlink {
+                path: "notes/other.md".to_string(),
+                title: "Other Note".to_string(),
+                excerpt: Some("References Example".to_string()),
+            }]
+        );
+    }
 }
