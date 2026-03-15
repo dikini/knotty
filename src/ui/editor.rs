@@ -26,6 +26,7 @@ struct MetadataForm {
     description: String,
     tags: Vec<String>,
     extra_fields: Vec<(String, String)>,
+    preserved_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +86,14 @@ impl EditorDocumentState {
         }
         self.modified = false;
         true
+    }
+
+    fn apply_saved_content(&mut self, content: &str, title: &str) {
+        if let Some(note) = self.note.as_mut() {
+            note.content = content.to_string();
+            note.title.clear();
+            note.title.push_str(title);
+        }
     }
 
     fn is_modified(&self) -> bool {
@@ -722,6 +731,10 @@ impl NoteEditor {
         };
 
         save_note(&request.path, &request.content)?;
+        let title = preferred_note_title(self.document_state.borrow().note.as_ref(), &content);
+        self.document_state
+            .borrow_mut()
+            .apply_saved_content(&content, &title);
         let changed = self.document_state.borrow_mut().set_clean();
         if changed {
             self.notify_modified_changed(false);
@@ -943,6 +956,12 @@ impl MetaHandles {
     }
 
     fn current_form(&self) -> MetadataForm {
+        let current_content = current_buffer_text(&self.text_view.buffer());
+        let mut form = {
+            let state = self.document_state.borrow();
+            metadata_form_from_content(state.note.as_ref(), &current_content)
+        };
+
         let tags = self
             .meta_tags_entry
             .text()
@@ -967,12 +986,11 @@ impl MetaHandles {
             })
             .collect();
 
-        MetadataForm {
-            title: self.meta_title_entry.text().to_string(),
-            description: self.meta_description_entry.text().to_string(),
-            tags,
-            extra_fields,
-        }
+        form.title = self.meta_title_entry.text().to_string();
+        form.description = self.meta_description_entry.text().to_string();
+        form.tags = tags;
+        form.extra_fields = extra_fields;
+        form
     }
 }
 
@@ -1086,16 +1104,23 @@ fn parse_inline_tag_list(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_frontmatter_map(frontmatter: &str) -> (Map<String, Value>, Vec<String>) {
+fn parse_frontmatter_map(frontmatter: &str) -> (Map<String, Value>, Vec<String>, Vec<String>) {
     let mut map = Map::new();
     let mut tags = Vec::new();
+    let mut preserved_lines = Vec::new();
 
     for line in frontmatter.lines() {
-        let trimmed = line.trim();
+        let trimmed_end = line.trim_end();
+        let trimmed = trimmed_end.trim();
         if trimmed.is_empty() {
             continue;
         }
+        if line.starts_with(char::is_whitespace) {
+            preserved_lines.push(trimmed_end.to_string());
+            continue;
+        }
         let Some((key, raw_value)) = trimmed.split_once(':') else {
+            preserved_lines.push(trimmed_end.to_string());
             continue;
         };
         let key = key.trim();
@@ -1104,21 +1129,25 @@ fn parse_frontmatter_map(frontmatter: &str) -> (Map<String, Value>, Vec<String>)
             tags = parse_inline_tag_list(raw_value);
             continue;
         }
+        if raw_value.is_empty() {
+            preserved_lines.push(trimmed_end.to_string());
+            continue;
+        }
         map.insert(key.to_string(), parse_metadata_scalar(raw_value));
     }
 
-    (map, tags)
+    (map, tags, preserved_lines)
 }
 
 fn metadata_form_from_content(note: Option<&NoteData>, content: &str) -> MetadataForm {
     let (frontmatter, _) = split_frontmatter(content);
-    let (mut frontmatter_map, mut tags) = frontmatter
+    let (mut frontmatter_map, mut tags, preserved_lines) = frontmatter
         .as_deref()
         .map(parse_frontmatter_map)
         .unwrap_or_else(|| {
             note.and_then(|note| note.metadata.clone())
-                .map(|metadata| (metadata.frontmatter, metadata.tags))
-                .unwrap_or_else(|| (Map::new(), Vec::new()))
+                .map(|metadata| (metadata.frontmatter, metadata.tags, Vec::new()))
+                .unwrap_or_else(|| (Map::new(), Vec::new(), Vec::new()))
         });
 
     let title = scalar_to_string(
@@ -1156,6 +1185,7 @@ fn metadata_form_from_content(note: Option<&NoteData>, content: &str) -> Metadat
         description,
         tags,
         extra_fields,
+        preserved_lines,
     }
 }
 
@@ -1178,6 +1208,8 @@ fn frontmatter_lines(form: &MetadataForm) -> Vec<String> {
             lines.push(format!("{}: {}", key.trim(), value.trim()));
         }
     }
+
+    lines.extend(form.preserved_lines.iter().cloned());
 
     lines
 }
@@ -1372,7 +1404,7 @@ fn expand_selection_to_lines(text: &str, selection: (usize, usize)) -> (usize, u
 fn preferred_note_title(note: Option<&NoteData>, content: &str) -> String {
     let (frontmatter, _) = split_frontmatter(content);
     if let Some(frontmatter) = frontmatter {
-        let (map, _) = parse_frontmatter_map(&frontmatter);
+        let (map, _, _) = parse_frontmatter_map(&frontmatter);
         if let Some(title) = map.get("title").and_then(scalar_to_string) {
             if !title.is_empty() {
                 return title;
@@ -1573,6 +1605,26 @@ mod tests {
     }
 
     #[test]
+    fn successful_save_updates_loaded_note_content_baseline() {
+        let mut state = EditorDocumentState::default();
+        state.load_note(test_note(Some(NoteType::Markdown), None));
+        state.mark_dirty();
+
+        state.apply_saved_content("# Saved\n\nBody", "Saved");
+        state.set_clean();
+
+        assert_eq!(
+            loaded_note_content(state.note.as_ref()),
+            "# Saved\n\nBody".to_string()
+        );
+        assert_eq!(
+            state.note.as_ref().map(|note| note.title.as_str()),
+            Some("Saved")
+        );
+        assert!(!state.is_modified());
+    }
+
+    #[test]
     fn preview_markup_skips_frontmatter() {
         let preview = preview_markup_lines("---\ntitle: Demo\n---\n# Heading\n\nBody");
 
@@ -1593,6 +1645,7 @@ mod tests {
                 ("published".to_string(), "true".to_string()),
                 ("rating".to_string(), "5".to_string()),
             ],
+            preserved_lines: Vec::new(),
         };
 
         let content = rebuild_content_with_metadata("# Heading\n\nBody", &form);
@@ -1605,6 +1658,30 @@ mod tests {
             .extra_fields
             .contains(&(String::from("published"), String::from("true"))));
         assert!(content.ends_with("# Heading\n\nBody"));
+    }
+
+    #[test]
+    fn metadata_round_trip_preserves_unsupported_frontmatter_lines() {
+        let content = concat!(
+            "---\n",
+            "title: Example\n",
+            "nested:\n",
+            "  child: value\n",
+            "list:\n",
+            "  - one\n",
+            "---\n",
+            "# Heading\n"
+        );
+
+        let mut form = metadata_form_from_content(None, content);
+        form.description = "Demo".to_string();
+        let rebuilt = rebuild_content_with_metadata("# Heading\n", &form);
+
+        assert!(rebuilt.contains("description: Demo"));
+        assert!(rebuilt.contains("nested:"));
+        assert!(rebuilt.contains("  child: value"));
+        assert!(rebuilt.contains("list:"));
+        assert!(rebuilt.contains("  - one"));
     }
 
     #[test]

@@ -43,3 +43,4 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Prevent an in-flight note load from re-populating the editor after the note has been cleared or deleted by bumping the load generation in `clear_active_note`.
 - Remove unused `SimpleNoteList` that performed a blocking RPC call on the GTK main thread.
 - Clarify `select_tree_item` by removing the unused `suppress_note` parameter — note activation is always suppressed for programmatic selection.
+- Keep GTK editor discard behavior anchored to the last successful save, and preserve unsupported frontmatter lines during metadata edits instead of dropping them on round-trip.
