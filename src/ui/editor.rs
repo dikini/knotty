@@ -1105,13 +1105,18 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
         };
     };
     let note_type = effective_note_type(note);
+    let source_frontmatter = source_frontmatter_map(content);
 
     if let Some(embed) = note.embed.as_ref() {
         if matches!(note_type, NoteType::Youtube) {
-            if let Some(model) = build_youtube_view_model(note, content, Some(embed)) {
+            if let Some(model) =
+                build_youtube_view_model(note, content, &source_frontmatter, Some(embed))
+            {
                 return NoteViewModel::Youtube(model);
             }
-        } else if let Some(model) = build_embed_view_model(note, content, embed) {
+        } else if let Some(model) =
+            build_embed_view_model(note, content, &source_frontmatter, embed)
+        {
             return model;
         }
     }
@@ -1135,15 +1140,17 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
                     open_action: None,
                 })
             }),
-        NoteType::Youtube => build_youtube_view_model(note, content, note.embed.as_ref())
-            .map(NoteViewModel::Youtube)
-            .unwrap_or_else(|| {
-                NoteViewModel::Error(ErrorViewModel {
-                    title: preferred_note_title(Some(note), content),
-                    message: "YouTube note is missing an outbound URL.".to_string(),
-                    open_action: None,
+        NoteType::Youtube => {
+            build_youtube_view_model(note, content, &source_frontmatter, note.embed.as_ref())
+                .map(NoteViewModel::Youtube)
+                .unwrap_or_else(|| {
+                    NoteViewModel::Error(ErrorViewModel {
+                        title: preferred_note_title(Some(note), content),
+                        message: "YouTube note is missing an outbound URL.".to_string(),
+                        open_action: None,
+                    })
                 })
-            }),
+        }
         NoteType::Markdown | NoteType::Unknown => NoteViewModel::Markdown {
             lines: preview_markup_lines(content),
         },
@@ -1187,13 +1194,14 @@ fn build_pdf_view_model(note: &NoteData, content: &str) -> Option<PdfViewModel> 
 fn build_youtube_view_model(
     note: &NoteData,
     content: &str,
+    source_frontmatter: &Map<String, Value>,
     embed: Option<&NoteEmbedDescriptor>,
 ) -> Option<YoutubeViewModel> {
-    let url = preferred_embed_target(note, content, embed)?;
+    let url = preferred_embed_target(note, source_frontmatter, embed)?;
 
     Some(YoutubeViewModel {
-        title: preferred_embed_title(note, content, embed),
-        description: metadata_string(note, content, "description"),
+        title: preferred_embed_title(note, content, source_frontmatter, embed),
+        description: metadata_string(note, source_frontmatter, "description"),
         url: url.clone(),
         open_action: LaunchActionModel {
             label: "Open video".to_string(),
@@ -1205,13 +1213,15 @@ fn build_youtube_view_model(
 fn build_embed_view_model(
     note: &NoteData,
     content: &str,
+    source_frontmatter: &Map<String, Value>,
     embed: &NoteEmbedDescriptor,
 ) -> Option<NoteViewModel> {
     if embed.kind.eq_ignore_ascii_case("youtube") {
-        return build_youtube_view_model(note, content, Some(embed)).map(NoteViewModel::Youtube);
+        return build_youtube_view_model(note, content, source_frontmatter, Some(embed))
+            .map(NoteViewModel::Youtube);
     }
 
-    let Some(target) = preferred_embed_target(note, content, Some(embed)) else {
+    let Some(target) = preferred_embed_target(note, source_frontmatter, Some(embed)) else {
         return Some(NoteViewModel::Error(ErrorViewModel {
             title: non_empty_title(note, content),
             message: format!(
@@ -1223,8 +1233,8 @@ fn build_embed_view_model(
     };
 
     Some(NoteViewModel::Embed(EmbedViewModel {
-        title: preferred_embed_title(note, content, Some(embed)),
-        description: metadata_string(note, content, "description"),
+        title: preferred_embed_title(note, content, source_frontmatter, Some(embed)),
+        description: metadata_string(note, source_frontmatter, "description"),
         kind: embed.kind.clone(),
         fallback: true,
         open_action: LaunchActionModel {
@@ -1236,11 +1246,11 @@ fn build_embed_view_model(
 
 fn preferred_embed_target(
     note: &NoteData,
-    content: &str,
+    source_frontmatter: &Map<String, Value>,
     embed: Option<&NoteEmbedDescriptor>,
 ) -> Option<String> {
-    metadata_string(note, content, "url")
-        .or_else(|| metadata_string(note, content, "source"))
+    metadata_string(note, source_frontmatter, "url")
+        .or_else(|| metadata_string(note, source_frontmatter, "source"))
         .or_else(|| {
             embed
                 .map(|embed| embed.source.trim().to_string())
@@ -1251,9 +1261,10 @@ fn preferred_embed_target(
 fn preferred_embed_title(
     note: &NoteData,
     content: &str,
+    source_frontmatter: &Map<String, Value>,
     embed: Option<&NoteEmbedDescriptor>,
 ) -> String {
-    metadata_string(note, content, "title")
+    metadata_string(note, source_frontmatter, "title")
         .or_else(|| {
             embed
                 .and_then(|embed| embed.title.clone())
@@ -1262,12 +1273,14 @@ fn preferred_embed_title(
         .unwrap_or_else(|| non_empty_title(note, content))
 }
 
-fn metadata_string(note: &NoteData, content: &str, key: &str) -> Option<String> {
-    let (frontmatter, _) = split_frontmatter(content);
-    let from_source = frontmatter
-        .as_deref()
-        .map(parse_frontmatter_map)
-        .and_then(|(map, _, _)| map.get(key).cloned())
+fn metadata_string(
+    note: &NoteData,
+    source_frontmatter: &Map<String, Value>,
+    key: &str,
+) -> Option<String> {
+    let from_source = source_frontmatter
+        .get(key)
+        .cloned()
         .and_then(|value| scalar_to_string(&value))
         .filter(|value| !value.trim().is_empty());
 
@@ -1278,6 +1291,15 @@ fn metadata_string(note: &NoteData, content: &str, key: &str) -> Option<String> 
             .and_then(scalar_to_string)
             .filter(|value| !value.trim().is_empty())
     })
+}
+
+fn source_frontmatter_map(content: &str) -> Map<String, Value> {
+    let (frontmatter, _) = split_frontmatter(content);
+    frontmatter
+        .as_deref()
+        .map(parse_frontmatter_map)
+        .map(|(map, _, _)| map)
+        .unwrap_or_default()
 }
 
 fn non_empty_title(note: &NoteData, content: &str) -> String {
@@ -2011,6 +2033,31 @@ mod tests {
     }
 
     #[test]
+    fn image_note_infers_view_surface_from_media_payload_when_note_type_is_missing() {
+        let note = test_note_with_media(
+            None,
+            None,
+            Some(NoteMediaData {
+                mime_type: "image/png".to_string(),
+                file_path: Some("/tmp/example.png".to_string()),
+                thumbnail_path: None,
+            }),
+        );
+
+        assert_eq!(
+            build_note_view_model(Some(&note), &note.content),
+            NoteViewModel::Image(ImageViewModel {
+                title: "Note".to_string(),
+                image_path: "/tmp/example.png".to_string(),
+                open_action: LaunchActionModel {
+                    label: "Open image".to_string(),
+                    target: ExternalTarget::FilePath("/tmp/example.png".to_string()),
+                },
+            })
+        );
+    }
+
+    #[test]
     fn image_note_without_media_path_enters_error_state() {
         let note = test_note_with_media(
             Some(NoteType::Image),
@@ -2060,6 +2107,29 @@ mod tests {
     #[test]
     fn youtube_note_uses_embed_source_for_primary_action() {
         let mut note = test_note(Some(NoteType::Youtube), None);
+        note.embed = Some(NoteEmbedDescriptor {
+            kind: "youtube".to_string(),
+            source: "https://www.youtube.com/watch?v=test".to_string(),
+            title: Some("Video".to_string()),
+        });
+
+        assert_eq!(
+            build_note_view_model(Some(&note), &note.content),
+            NoteViewModel::Youtube(YoutubeViewModel {
+                title: "Video".to_string(),
+                description: None,
+                url: "https://www.youtube.com/watch?v=test".to_string(),
+                open_action: LaunchActionModel {
+                    label: "Open video".to_string(),
+                    target: ExternalTarget::Uri("https://www.youtube.com/watch?v=test".to_string()),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn youtube_note_infers_view_surface_from_embed_payload_when_note_type_is_missing() {
+        let mut note = test_note(None, None);
         note.embed = Some(NoteEmbedDescriptor {
             kind: "youtube".to_string(),
             source: "https://www.youtube.com/watch?v=test".to_string(),

@@ -33,7 +33,8 @@ Add note-type-aware behavior so GTK can handle markdown, YouTube, image, PDF, an
 - Editor and shell must use note-type data from the contract, not filename guesses only.
 
 **FR-2**: View-only note types
-- PDF, image, and unknown note types must disable unsupported modes and render stable view surfaces.
+- PDF and image note types must disable unsupported modes and render stable view surfaces.
+- Unknown note types must follow the contract defaults unless `available_modes` overrides them.
 
 **FR-3**: YouTube note support
 - YouTube notes must show title and outbound/open behavior using available metadata.

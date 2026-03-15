@@ -7,7 +7,8 @@ pub struct NoteTypeIndicator {
 }
 
 pub fn effective_note_type(note: &NoteData) -> NoteType {
-    note.note_type.unwrap_or(NoteType::Markdown)
+    note.note_type
+        .unwrap_or_else(|| infer_note_type_from_payload(note))
 }
 
 pub fn available_modes_for_note_type(note_type: NoteType) -> NoteModeAvailability {
@@ -60,6 +61,55 @@ pub fn note_type_indicator(type_badge: Option<&str>) -> NoteTypeIndicator {
     NoteTypeIndicator {
         icon_name: icon_name.to_string(),
         badge: badge.to_uppercase(),
+    }
+}
+
+fn infer_note_type_from_payload(note: &NoteData) -> NoteType {
+    note.type_badge
+        .as_deref()
+        .and_then(note_type_from_hint)
+        .or_else(|| {
+            note.embed
+                .as_ref()
+                .and_then(|embed| note_type_from_hint(embed.kind.as_str()))
+        })
+        .or_else(|| {
+            note.media
+                .as_ref()
+                .and_then(|media| note_type_from_mime_type(media.mime_type.as_str()))
+        })
+        .or_else(|| note.media.as_ref().map(|_| NoteType::Unknown))
+        .or_else(|| note.embed.as_ref().map(|_| NoteType::Unknown))
+        .unwrap_or(NoteType::Markdown)
+}
+
+fn note_type_from_hint(hint: &str) -> Option<NoteType> {
+    match hint.trim() {
+        hint if hint.is_empty() => None,
+        hint if hint.eq_ignore_ascii_case("youtube") || hint.eq_ignore_ascii_case("yt") => {
+            Some(NoteType::Youtube)
+        }
+        hint if hint.eq_ignore_ascii_case("pdf") => Some(NoteType::Pdf),
+        hint if matches!(
+            hint.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "image"
+        ) =>
+        {
+            Some(NoteType::Image)
+        }
+        hint if hint.eq_ignore_ascii_case("markdown") || hint.eq_ignore_ascii_case("md") => {
+            Some(NoteType::Markdown)
+        }
+        _ => None,
+    }
+}
+
+fn note_type_from_mime_type(mime_type: &str) -> Option<NoteType> {
+    match mime_type.trim() {
+        mime_type if mime_type.is_empty() => None,
+        mime_type if mime_type.eq_ignore_ascii_case("application/pdf") => Some(NoteType::Pdf),
+        mime_type if mime_type.to_ascii_lowercase().starts_with("image/") => Some(NoteType::Image),
+        _ => None,
     }
 }
 
@@ -126,6 +176,42 @@ mod tests {
         assert_eq!(pdf.badge, "PDF");
         assert_eq!(youtube.icon_name, "video-x-generic");
         assert_eq!(youtube.badge, "YT");
+    }
+
+    #[test]
+    fn effective_note_type_uses_payload_hints_when_explicit_type_is_missing() {
+        let mut image_note = test_note(None, None);
+        image_note.type_badge = Some("image".to_string());
+
+        let mut pdf_note = test_note(None, None);
+        pdf_note.media = Some(crate::client::NoteMediaData {
+            mime_type: "application/pdf".to_string(),
+            file_path: Some("/tmp/example.pdf".to_string()),
+            thumbnail_path: None,
+        });
+
+        let mut youtube_note = test_note(None, None);
+        youtube_note.embed = Some(crate::client::NoteEmbedDescriptor {
+            kind: "youtube".to_string(),
+            source: "https://www.youtube.com/watch?v=test".to_string(),
+            title: None,
+        });
+
+        assert_eq!(effective_note_type(&image_note), NoteType::Image);
+        assert_eq!(effective_note_type(&pdf_note), NoteType::Pdf);
+        assert_eq!(effective_note_type(&youtube_note), NoteType::Youtube);
+    }
+
+    #[test]
+    fn effective_note_type_falls_back_to_unknown_for_untyped_media_payloads() {
+        let mut note = test_note(None, None);
+        note.media = Some(crate::client::NoteMediaData {
+            mime_type: "application/octet-stream".to_string(),
+            file_path: Some("/tmp/blob.bin".to_string()),
+            thumbnail_path: None,
+        });
+
+        assert_eq!(effective_note_type(&note), NoteType::Unknown);
     }
 
     fn test_note(

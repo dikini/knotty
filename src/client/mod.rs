@@ -440,7 +440,9 @@ pub struct NoteData {
     pub modified_at: i64,
     #[serde(rename = "word_count")]
     pub word_count: usize,
+    #[serde(default)]
     pub headings: Vec<Heading>,
+    #[serde(default)]
     pub backlinks: Vec<Backlink>,
     #[serde(rename = "note_type")]
     pub note_type: Option<NoteType>,
@@ -466,9 +468,13 @@ pub enum NoteType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoteModeAvailability {
+    #[serde(default)]
     pub meta: bool,
+    #[serde(default)]
     pub source: bool,
+    #[serde(default)]
     pub edit: bool,
+    #[serde(default)]
     pub view: bool,
 }
 
@@ -482,29 +488,41 @@ pub struct NoteMetadata {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteEmbedDescriptor {
+    #[serde(default)]
     pub kind: String,
+    #[serde(default)]
     pub source: String,
+    #[serde(default)]
     pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteMediaData {
+    #[serde(default)]
     pub mime_type: String,
+    #[serde(default)]
     pub file_path: Option<String>,
+    #[serde(default)]
     pub thumbnail_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Heading {
+    #[serde(default)]
     pub level: u8,
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
     pub slug: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Backlink {
+    #[serde(default)]
     pub path: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub excerpt: Option<String>,
 }
 
@@ -675,6 +693,93 @@ mod tests {
                 kind: "youtube".to_string(),
                 source: "https://www.youtube.com/watch?v=test".to_string(),
                 title: Some("Demo Video".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn note_data_tolerates_embed_without_kind() {
+        let mut payload = base_note_payload();
+        payload["note_type"] = json!("youtube");
+        payload["embed"] = json!({
+            "source": "https://www.youtube.com/watch?v=test",
+            "title": "Demo Video"
+        });
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.embed,
+            Some(NoteEmbedDescriptor {
+                kind: String::new(),
+                source: "https://www.youtube.com/watch?v=test".to_string(),
+                title: Some("Demo Video".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn note_data_tolerates_missing_heading_slug_and_absent_collections() {
+        let mut payload = base_note_payload();
+        payload
+            .as_object_mut()
+            .expect("payload object")
+            .remove("backlinks");
+        payload
+            .as_object_mut()
+            .expect("payload object")
+            .remove("headings");
+        payload["headings"] = json!([
+            {
+                "level": 2,
+                "text": "Section One"
+            }
+        ]);
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.headings,
+            vec![Heading {
+                level: 2,
+                text: "Section One".to_string(),
+                slug: String::new(),
+            }]
+        );
+        assert!(note.backlinks.is_empty());
+    }
+
+    #[test]
+    fn note_data_tolerates_partial_media_and_available_modes() {
+        let mut payload = base_note_payload();
+        payload["note_type"] = json!("image");
+        payload["available_modes"] = json!({
+            "view": true
+        });
+        payload["media"] = json!({
+            "file_path": "/tmp/example.png"
+        });
+
+        let note: NoteData =
+            serde_json::from_value(payload).expect("note payload should deserialize");
+
+        assert_eq!(
+            note.available_modes,
+            Some(NoteModeAvailability {
+                meta: false,
+                source: false,
+                edit: false,
+                view: true,
+            })
+        );
+        assert_eq!(
+            note.media,
+            Some(NoteMediaData {
+                mime_type: String::new(),
+                file_path: Some("/tmp/example.png".to_string()),
+                thumbnail_path: None,
             })
         );
     }

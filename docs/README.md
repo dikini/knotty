@@ -20,6 +20,7 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 6. `COMP-GTK-GRAPH-006` - graph UI and graph context
 7. `COMP-GTK-SETTINGS-007` - settings, plugins, maintenance
 8. `COMP-GTK-AUTOMATION-008` - UI automation and parity harnesses
+9. `COMP-GTK-DEPRECATIONS-009` - deprecated GTK/libadwaita API modernization
 
 ## Working Rules
 

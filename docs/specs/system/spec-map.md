@@ -22,6 +22,7 @@ Provide a compact registry of the GTK parity slice specs, their delivery order, 
 | 6 | `COMP-GTK-GRAPH-006` | GTK Graph UI and Graph Context | `proposed` | `COMP-GTK-SHELL-002` | `docs/plans/2026-03-14-gtk-graph-plan.md` |
 | 7 | `COMP-GTK-SETTINGS-007` | GTK Settings, Plugins, and Maintenance | `proposed` | `COMP-GTK-SHELL-002` | `docs/plans/2026-03-14-gtk-settings-plan.md` |
 | 8 | `COMP-GTK-AUTOMATION-008` | GTK UI Automation and Parity Harnesses | `proposed` | `COMP-GTK-RUNTIME-001`, `COMP-GTK-SHELL-002`, `COMP-GTK-SETTINGS-007` | `docs/plans/2026-03-14-gtk-automation-plan.md` |
+| 9 | `COMP-GTK-DEPRECATIONS-009` | GTK Deprecated API Modernization | `proposed` | `COMP-GTK-EXPLORER-003`, `COMP-GTK-SHELL-002` | `docs/plans/2026-03-15-gtk-deprecations-plan.md` |
 
 ## Suggested Parallel Lanes
 

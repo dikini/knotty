@@ -1,6 +1,8 @@
 use gtk::prelude::*;
 use libadwaita::prelude::*;
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 mod cli;
 mod client;
@@ -15,6 +17,10 @@ use ui::window::KnotWindow;
 use std::sync::OnceLock;
 pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+thread_local! {
+    static MAIN_WINDOW: RefCell<Option<Rc<KnotWindow>>> = const { RefCell::new(None) };
+}
 
 const APP_ID: &str = "com.example.Knot";
 const SEARCH_FOCUS_ACTION: &str = "win.focus-search";
@@ -83,9 +89,18 @@ fn main() -> anyhow::Result<()> {
 
     // Activate handler
     app.connect_activate(move |app| {
-        let client = KnotdClient::with_socket_path(&socket_path);
-        let window = KnotWindow::with_client(app, client);
-        window.present();
+        MAIN_WINDOW.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if let Some(window) = slot.as_ref() {
+                window.present();
+                return;
+            }
+
+            let client = KnotdClient::with_socket_path(&socket_path);
+            let window = Rc::new(KnotWindow::with_client(app, client));
+            window.present();
+            *slot = Some(window);
+        });
     });
 
     // Run application

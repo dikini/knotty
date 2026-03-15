@@ -10,6 +10,10 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Centralize the GTK socket runtime contract so the CLI, client defaults, tests, and README all use the canonical `.../knot/knotd.sock` path.
 - Generate the CLI default-socket help text from the shared runtime-contract definition so path help cannot drift from runtime behavior.
 - Remove the machine-specific `/run/user/1000` socket fallback and require `XDG_RUNTIME_DIR`, `--socket`, or `KNOTD_SOCKET_PATH` for the GTK daemon connection contract.
+- Keep the primary GTK window alive for the application lifetime instead of dropping the window wrapper immediately after `present()`.
+- Remove the redundant editor mode-button group assignment that could hang startup while activating the default source mode toggle.
+- Tolerate note payloads whose optional `embed` object omits `kind` or other fields so GTK loads the note instead of failing the entire response decode.
+- Tolerate partial note payloads for headings, backlinks, media, and mode availability so note loads degrade instead of failing hard on missing nested fields.
 
 ### Added
 
@@ -22,8 +26,10 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
 - Add GTK note-type routing helpers plus image, PDF, YouTube, and embed view surfaces driven by note contract metadata, with shared explorer iconography and note-type follow-up notes.
 - Narrow GTK PDF handling to a system-viewer fallback and keep note-type view cards aligned with the current source/frontmatter state instead of stale loaded-note metadata.
+- Fix note-type routing so missing `note_type` can still use contract payload hints from `type_badge`, `embed`, and `media` without falling back to markdown surfaces.
 - Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 - Restore explicit regression coverage for note-load cancellation after rebasing the explorer review fixes.
+- Add a dedicated GTK deprecations modernization spec, design note, and implementation plan so deprecated GTK/libadwaita API migration can be prioritized as an explicit slice.
 
 ### Changed
 
