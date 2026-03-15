@@ -22,6 +22,9 @@
 - This slice should not add PDF/image/YouTube rendering; that belongs to the next slice.
 - Keep authoring controls minimal but functionally complete.
 - Add guard integration using the explorer hook from the previous slice.
+- Canonical markdown source is the only authoritative note state; `view`, `edit`, and `meta` must derive from it.
+- Keep the mode rail in a fixed four-icon layout for every note type; unavailable modes stay visible but disabled, with no hover or click affordance.
+- `meta` should pin `title`, `description`, and `tags` at the top, then show a generic frontmatter editor below.
 
 ## Rust Guidance For This Slice
 
@@ -29,6 +32,7 @@
 - Do not drop unsaved changes on failed save or mode switch.
 - Keep markdown transformation helpers small and covered by tests.
 - Avoid hidden side effects in mode-switch callbacks.
+- Prefer deterministic rebuilds over clever incremental synchronization if that keeps the code smaller and easier to reason about.
 
 ## knotd Calls Used By This Slice
 
@@ -73,6 +77,13 @@ pub struct NoteData {
 4. main thread receives typed `NoteData`
 5. editor applies mode availability and content
 6. dirty state resets only after a successful load
+
+### UI contract for this slice
+
+- The mode order is fixed: `meta`, `source`, `edit`, `view`.
+- Mode selection uses icons rather than text labels.
+- Unavailable modes remain visible for layout stability and are grayed out.
+- Unavailable modes should not show hover affordances or explanatory messages.
 
 ## Suggested Task Ownership
 
@@ -208,6 +219,7 @@ fn denied_switch_keeps_current_note_selected() {
 - Pick one synchronization direction as authoritative.
 - Example: source text is the saved truth, and view/edit derive from it.
 - Write that down in code comments if it is not obvious.
+- Favor explicit reconstruction from source over partial in-place synchronization if that keeps behavior deterministic and the implementation simple.
 
 ### Task GTC-005: Add baseline markdown authoring commands
 
@@ -246,7 +258,8 @@ fn denied_switch_keeps_current_note_selected() {
 **Advice**
 
 - Start meta mode with a tiny, clear surface.
-- It is acceptable to support a small number of fields first as long as the contract and save path are correct.
+- Keep `title`, `description`, and `tags` pinned at the top.
+- The generic editor below should focus on simple scalar frontmatter values first; nested structures can be deferred if they would add disproportionate complexity.
 
 ## Slice Verification
 
