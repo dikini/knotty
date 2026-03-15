@@ -44,3 +44,4 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Remove unused `SimpleNoteList` that performed a blocking RPC call on the GTK main thread.
 - Clarify `select_tree_item` by removing the unused `suppress_note` parameter — note activation is always suppressed for programmatic selection.
 - Keep GTK editor discard behavior anchored to the last successful save, and preserve unsupported frontmatter lines during metadata edits instead of dropping them on round-trip.
+- Remove the stale note-switch allow-token path from the GTK editor flow so earlier approved switches cannot bypass a later dirty-note prompt for the same target.

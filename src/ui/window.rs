@@ -23,12 +23,6 @@ enum NoteLoadOrigin {
     SearchSelection,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingNoteSelection {
-    origin: NoteLoadOrigin,
-    path: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirtyNoteSwitchResponse {
     Cancel,
@@ -415,7 +409,6 @@ fn build_note_load_dispatcher(
 struct NoteSwitchPromptHandles {
     window: libadwaita::ApplicationWindow,
     editor: Rc<NoteEditor>,
-    pending_allowed_selection: Rc<RefCell<Option<PendingNoteSelection>>>,
     prompt_open: Rc<Cell<bool>>,
     dispatch_note_load: Rc<dyn Fn(NoteLoadOrigin, &str)>,
 }
@@ -443,7 +436,6 @@ fn present_dirty_note_switch_prompt(
     dialog.set_response_appearance("discard", libadwaita::ResponseAppearance::Destructive);
     dialog.set_response_appearance("save", libadwaita::ResponseAppearance::Suggested);
 
-    let pending_allowed_selection = Rc::clone(&handles.pending_allowed_selection);
     let prompt_open = Rc::clone(&handles.prompt_open);
     let editor = Rc::clone(&handles.editor);
     let dispatch_note_load = Rc::clone(&handles.dispatch_note_load);
@@ -457,10 +449,6 @@ fn present_dirty_note_switch_prompt(
                 DirtyNoteSwitchResponse::Cancel => {}
                 DirtyNoteSwitchResponse::Discard => {
                     editor.discard_changes();
-                    *pending_allowed_selection.borrow_mut() = Some(PendingNoteSelection {
-                        origin,
-                        path: path.clone(),
-                    });
                     dispatch_note_load(origin, &path);
                 }
                 DirtyNoteSwitchResponse::Save => {
@@ -468,10 +456,6 @@ fn present_dirty_note_switch_prompt(
                         log::error!("Failed to save note before switching: {}", error);
                         return;
                     }
-                    *pending_allowed_selection.borrow_mut() = Some(PendingNoteSelection {
-                        origin,
-                        path: path.clone(),
-                    });
                     dispatch_note_load(origin, &path);
                 }
             }
@@ -483,24 +467,6 @@ fn should_route_loaded_note_to_notes(origin: NoteLoadOrigin, tool_mode: ToolMode
     matches!(tool_mode, ToolMode::Notes)
         || (matches!(origin, NoteLoadOrigin::SearchSelection)
             && matches!(tool_mode, ToolMode::Search))
-}
-
-fn take_allowed_note_selection(
-    pending_selection: &Rc<RefCell<Option<PendingNoteSelection>>>,
-    origin: NoteLoadOrigin,
-    path: &str,
-) -> bool {
-    let matches = pending_selection
-        .borrow()
-        .as_ref()
-        .map(|selection| selection.origin == origin && selection.path == path)
-        .unwrap_or(false);
-
-    if matches {
-        pending_selection.borrow_mut().take();
-    }
-
-    matches
 }
 
 fn dirty_note_switch_response(response: &str) -> DirtyNoteSwitchResponse {
@@ -961,11 +927,9 @@ impl KnotWindow {
             Rc::clone(&self.search_view),
         );
 
-        let pending_allowed_selection = Rc::new(RefCell::new(None::<PendingNoteSelection>));
         let note_switch_prompt = NoteSwitchPromptHandles {
             window: self.window.clone(),
             editor: Rc::clone(&self.editor),
-            pending_allowed_selection: Rc::clone(&pending_allowed_selection),
             prompt_open: Rc::new(Cell::new(false)),
             dispatch_note_load: Rc::clone(&dispatch_note_load),
         };
@@ -976,17 +940,8 @@ impl KnotWindow {
         });
         self.context_panel.connect_note_switch_guard({
             let editor = Rc::clone(&self.editor);
-            let pending_allowed_selection = Rc::clone(&pending_allowed_selection);
             let note_switch_prompt = note_switch_prompt.clone();
             move |path| {
-                if take_allowed_note_selection(
-                    &pending_allowed_selection,
-                    NoteLoadOrigin::ContextSelection,
-                    path,
-                ) {
-                    return NoteSwitchDecision::Allow;
-                }
-
                 if editor.is_modified() {
                     present_dirty_note_switch_prompt(
                         &note_switch_prompt,
@@ -1002,19 +957,9 @@ impl KnotWindow {
 
         self.search_view.connect_result_selected({
             let editor = Rc::clone(&self.editor);
-            let pending_allowed_selection = Rc::clone(&pending_allowed_selection);
             let note_switch_prompt = note_switch_prompt.clone();
             let dispatch_note_load = Rc::clone(&dispatch_note_load);
             move |path| {
-                if take_allowed_note_selection(
-                    &pending_allowed_selection,
-                    NoteLoadOrigin::SearchSelection,
-                    path,
-                ) {
-                    dispatch_note_load(NoteLoadOrigin::SearchSelection, path);
-                    return;
-                }
-
                 if editor.is_modified() {
                     present_dirty_note_switch_prompt(
                         &note_switch_prompt,
@@ -1505,28 +1450,6 @@ mod tests {
             });
 
         assert_eq!(decision, NoteSwitchDecision::Deny);
-    }
-
-    #[test]
-    fn take_allowed_note_selection_consumes_only_matching_origin_and_path() {
-        let pending_selection = Rc::new(RefCell::new(Some(PendingNoteSelection {
-            origin: NoteLoadOrigin::SearchSelection,
-            path: "notes/example.md".to_string(),
-        })));
-
-        assert!(!take_allowed_note_selection(
-            &pending_selection,
-            NoteLoadOrigin::ContextSelection,
-            "notes/example.md"
-        ));
-        assert!(pending_selection.borrow().is_some());
-
-        assert!(take_allowed_note_selection(
-            &pending_selection,
-            NoteLoadOrigin::SearchSelection,
-            "notes/example.md"
-        ));
-        assert!(pending_selection.borrow().is_none());
     }
 
     #[test]
