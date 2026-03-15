@@ -27,7 +27,7 @@ enum StartupAction {
 enum StartupState {
     DaemonUnavailable { message: String },
     NoVault,
-    VaultOpen { name: String },
+    VaultOpen { name: Option<String> },
 }
 
 pub struct KnotWindow {
@@ -59,10 +59,16 @@ fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadR
 fn determine_startup_state(client: &KnotdClient) -> StartupState {
     match client.is_vault_open() {
         Ok(true) => match client.get_vault_info() {
-            Ok(info) => StartupState::VaultOpen { name: info.name },
-            Err(error) => StartupState::DaemonUnavailable {
-                message: format!("failed to load vault info: {error}"),
+            Ok(info) => StartupState::VaultOpen {
+                name: Some(info.name),
             },
+            Err(error) => {
+                log::error!(
+                    "Failed to load vault info while daemon is reachable: {}",
+                    error
+                );
+                StartupState::VaultOpen { name: None }
+            }
         },
         Ok(false) => StartupState::NoVault,
         Err(error) => StartupState::DaemonUnavailable {
@@ -75,7 +81,8 @@ fn startup_header_text(state: &StartupState) -> String {
     match state {
         StartupState::DaemonUnavailable { .. } => "knotd unavailable".to_string(),
         StartupState::NoVault => "No vault open".to_string(),
-        StartupState::VaultOpen { name } => format!("Connected to vault: {name}"),
+        StartupState::VaultOpen { name: Some(name) } => format!("Connected to vault: {name}"),
+        StartupState::VaultOpen { name: None } => "Connected to vault".to_string(),
     }
 }
 
@@ -311,15 +318,17 @@ fn build_note_selection_handler(
                         *current_note.borrow_mut() = Some(note);
                         let mut shell_state = shell_state.borrow_mut();
                         shell_state.set_note_selected(true);
-                        shell_state.select_tool(ToolMode::Notes);
-                        apply_shell_state(
-                            &shell_state,
-                            &tool_rail,
-                            &context_panel.borrow(),
-                            &content_stack,
-                            &inspector_rail,
-                            search_view.as_ref(),
-                        );
+                        if should_route_loaded_note_to_notes(shell_state.tool_mode()) {
+                            shell_state.select_tool(ToolMode::Notes);
+                            apply_shell_state(
+                                &shell_state,
+                                &tool_rail,
+                                &context_panel.borrow(),
+                                &content_stack,
+                                &inspector_rail,
+                                search_view.as_ref(),
+                            );
+                        }
                     }
                     Err(error) => {
                         window.set_title(Some("Failed to load note — Knot"));
@@ -329,6 +338,10 @@ fn build_note_selection_handler(
             },
         );
     })
+}
+
+fn should_route_loaded_note_to_notes(tool_mode: ToolMode) -> bool {
+    matches!(tool_mode, ToolMode::Notes | ToolMode::Search)
 }
 
 impl KnotWindow {
@@ -823,7 +836,7 @@ mod tests {
     #[test]
     fn startup_state_reports_vault_open_when_vault_info_is_available() {
         let state = StartupState::VaultOpen {
-            name: "Example".to_string(),
+            name: Some("Example".to_string()),
         };
 
         assert_eq!(startup_header_text(&state), "Connected to vault: Example");
@@ -871,6 +884,16 @@ mod tests {
             no_vault_actions,
             &[StartupAction::OpenVault, StartupAction::CreateVault]
         );
+    }
+
+    #[test]
+    fn degraded_vault_info_failure_keeps_shell_chrome_available() {
+        let state = StartupState::VaultOpen { name: None };
+
+        assert_eq!(startup_header_text(&state), "Connected to vault");
+        assert_eq!(startup_content_child_name(&state), "empty");
+        assert!(startup_shell_chrome_visible(&state));
+        assert!(startup_action_specs(&state).is_empty());
     }
 
     #[test]
@@ -978,5 +1001,13 @@ mod tests {
 
         assert_eq!(*first_state.borrow(), RequestState::Loading);
         assert_eq!(*second_state.borrow(), RequestState::Success(second_note));
+    }
+
+    #[test]
+    fn note_load_completion_only_routes_to_notes_from_notes_or_search() {
+        assert!(should_route_loaded_note_to_notes(ToolMode::Notes));
+        assert!(should_route_loaded_note_to_notes(ToolMode::Search));
+        assert!(!should_route_loaded_note_to_notes(ToolMode::Graph));
+        assert!(!should_route_loaded_note_to_notes(ToolMode::Settings));
     }
 }
