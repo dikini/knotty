@@ -6,6 +6,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Fixed
 
+- Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
 - Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.
 - Centralize the GTK socket runtime contract so the CLI, client defaults, tests, and README all use the canonical `.../knot/knotd.sock` path.
 - Generate the CLI default-socket help text from the shared runtime-contract definition so path help cannot drift from runtime behavior.
@@ -38,6 +39,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 - Clarify the local agent workflow docs to include a rust-skills and review pass in the non-trivial task execution flow, plus recording deferred future work in `docs/notes/`.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
+- Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
 
 ### Fixed
 
