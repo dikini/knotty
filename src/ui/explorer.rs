@@ -50,6 +50,7 @@ pub enum NoteSwitchDecision {
     Allow,
     Deny,
     SaveThenAllow,
+    Prompt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,8 +306,9 @@ fn guard_block_message(decision: NoteSwitchDecision, action: &str) -> Option<Str
         NoteSwitchDecision::Allow => None,
         NoteSwitchDecision::Deny => Some(format!("{action} is blocked by unsaved note changes.")),
         NoteSwitchDecision::SaveThenAllow => Some(format!(
-            "{action} requires save-then-switch, which is not implemented yet."
+            "{action} requires saving the current note before proceeding."
         )),
+        NoteSwitchDecision::Prompt => None,
     }
 }
 
@@ -1278,10 +1280,14 @@ mod tests {
         );
         assert_eq!(
             guard_block_message(NoteSwitchDecision::SaveThenAllow, "Deleting"),
-            Some("Deleting requires save-then-switch, which is not implemented yet.".to_string())
+            Some("Deleting requires saving the current note before proceeding.".to_string())
         );
         assert_eq!(
             guard_block_message(NoteSwitchDecision::Allow, "Deleting"),
+            None
+        );
+        assert_eq!(
+            guard_block_message(NoteSwitchDecision::Prompt, "Deleting"),
             None
         );
     }

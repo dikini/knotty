@@ -25,8 +25,8 @@ Lock the GTK editor behavior before implementation so the editor slice can stay 
 
 - `source` shows editable raw markdown.
 - `view` renders canonical markdown without editing controls.
-- `edit` uses the GTK block editor as a structured authoring surface.
-- Changes made in `edit` must synchronize back into canonical source explicitly.
+- `edit` uses a GTK-native markdown editing surface with command buttons over the same canonical text buffer used by `source`.
+- Changes made in `edit` update canonical source directly.
 - Simplicity rule: prefer deterministic rebuild/refresh behavior over clever incremental synchronization.
 
 ### Meta Surface

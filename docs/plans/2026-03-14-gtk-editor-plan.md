@@ -110,7 +110,7 @@ pub struct NoteData {
 |---|---|---|---|---|
 | GTC-001A | GTC-001 | Add failing default-mode test | `src/ui/editor.rs` | media rendering |
 | GTC-001B | GTC-001 | Add failing mode-availability test per note type | `src/ui/editor.rs` | `src/ui/window.rs` |
-| GTC-001C | GTC-001 | Implement mode gate helper | `src/ui/editor.rs` | `src/ui/block_editor/*` |
+| GTC-001C | GTC-001 | Implement mode gate helper | `src/ui/editor.rs` | media views |
 | GTC-002A | GTC-002 | Add failing dirty-on-edit test | `src/ui/editor.rs` | `src/ui/window.rs` |
 | GTC-002B | GTC-002 | Add failing save-success clears-dirty test | `src/ui/editor.rs` | `src/ui/explorer.rs` |
 | GTC-002C | GTC-002 | Add failing save-error keeps-dirty test | `src/ui/editor.rs` | `src/ui/explorer.rs` |
@@ -122,10 +122,10 @@ pub struct NoteData {
 | GTC-004A | GTC-004 | Add failing content-preservation test | `src/ui/editor.rs` | `src/ui/window.rs` |
 | GTC-004B | GTC-004 | Add failing scroll/cursor restoration test | `src/ui/editor.rs` | note type rendering |
 | GTC-004C | GTC-004 | Implement source/view sync | `src/ui/editor.rs` | `src/ui/explorer.rs` |
-| GTC-004D | GTC-004 | Implement source/edit sync | `src/ui/editor.rs`, `src/ui/block_editor/*` | media views |
-| GTC-005A | GTC-005 | Add failing heading/list command tests | `src/ui/editor.rs`, `src/ui/block_editor/parser.rs` | meta mode |
-| GTC-005B | GTC-005 | Add failing quote/code/hr tests | `src/ui/editor.rs`, `src/ui/block_editor/parser.rs` | meta mode |
-| GTC-005C | GTC-005 | Add failing task-toggle/link tests | `src/ui/editor.rs`, `src/ui/block_editor/renderer.rs` | media views |
+| GTC-004D | GTC-004 | Implement source/edit sync | `src/ui/editor.rs` | media views |
+| GTC-005A | GTC-005 | Add failing heading/list command tests | `src/ui/editor.rs` | meta mode |
+| GTC-005B | GTC-005 | Add failing quote/code/hr tests | `src/ui/editor.rs` | meta mode |
+| GTC-005C | GTC-005 | Add failing task-toggle/link tests | `src/ui/editor.rs` | media views |
 | GTC-005D | GTC-005 | Implement baseline commands minimally | touched files only | shell routing |
 | GTC-006A | GTC-006 | Add failing meta-mode availability test | `src/ui/editor.rs` | `src/ui/window.rs` |
 | GTC-006B | GTC-006 | Add failing metadata round-trip test | `src/ui/editor.rs` | note type rendering |
@@ -204,7 +204,6 @@ fn denied_switch_keeps_current_note_selected() {
 
 **Files**
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/editor.rs`
-- Modify: `/home/dikini/Projects/knot-gtk/src/ui/block_editor/*` only if required
 
 **Steps**
 1. Write failing tests for content preservation across mode switches.
@@ -225,8 +224,6 @@ fn denied_switch_keeps_current_note_selected() {
 
 **Files**
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/editor.rs`
-- Modify: `/home/dikini/Projects/knot-gtk/src/ui/block_editor/parser.rs`
-- Modify: `/home/dikini/Projects/knot-gtk/src/ui/block_editor/renderer.rs`
 
 **Steps**
 1. Write failing tests for headings, lists, quotes, code blocks, horizontal rules, task toggles, and links/wikilinks.

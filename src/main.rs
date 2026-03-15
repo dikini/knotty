@@ -19,6 +19,8 @@ pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new
 const APP_ID: &str = "com.example.Knot";
 const SEARCH_FOCUS_ACTION: &str = "win.focus-search";
 const SEARCH_FOCUS_ACCELS: &[&str] = &["<Control>k"];
+const SAVE_NOTE_ACTION: &str = "win.save-note";
+const SAVE_NOTE_ACCELS: &[&str] = &["<Control>s"];
 
 fn load_css() {
     let css = include_str!("../data/style.css");
@@ -154,6 +156,7 @@ fn setup_shortcuts(app: &libadwaita::Application) {
     app.set_accels_for_action("app.close", &["<Control>w"]);
     app.set_accels_for_action("app.toggle-sidebar", &["F9"]);
     app.set_accels_for_action(SEARCH_FOCUS_ACTION, SEARCH_FOCUS_ACCELS);
+    app.set_accels_for_action(SAVE_NOTE_ACTION, SAVE_NOTE_ACCELS);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
 }
 
@@ -191,5 +194,11 @@ mod tests {
     fn search_focus_shortcut_is_bound_to_window_action() {
         assert_eq!(SEARCH_FOCUS_ACTION, "win.focus-search");
         assert_eq!(SEARCH_FOCUS_ACCELS, &["<Control>k"]);
+    }
+
+    #[test]
+    fn save_shortcut_is_bound_to_window_action() {
+        assert_eq!(SAVE_NOTE_ACTION, "win.save-note");
+        assert_eq!(SAVE_NOTE_ACCELS, &["<Control>s"]);
     }
 }
