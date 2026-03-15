@@ -43,6 +43,7 @@ This design follows that style closely, but adapts the checks to a smaller Rust-
 
 - `scripts/check-doc-work-evidence.sh`
 - `scripts/check-rust-format.sh`
+- `scripts/check-rust-clippy.sh`
 - `scripts/check-rust-tests.sh`
 - `scripts/check-property-tests.sh`
 - `scripts/check-fuzz.sh`
@@ -71,10 +72,11 @@ Checks:
 1. documentation evidence check against staged changes
 2. Rust formatting check
 3. Rust compile check
-4. unit and integration tests
-5. property tests if present
-6. fuzz smoke or fuzz harness checks if present
-7. success marker write to `.git/.pre-commit-gate.ok`
+4. Rust clippy check
+5. unit and integration tests
+6. property tests if present
+7. fuzz smoke or fuzz harness checks if present
+8. success marker write to `.git/.pre-commit-gate.ok`
 
 ### Full Gate
 
@@ -165,8 +167,10 @@ If not found:
 - prefer `cargo nextest run` if available
 - otherwise use `cargo test`
 - use `cargo check` for build verification
+- run `cargo clippy --workspace --all-targets --all-features` as part of the local gate
 - use `cargo fmt --check` for formatting verification
-- do not add clippy unless explicitly requested; this repo currently has many warnings and that would change the quality bar significantly
+- current gate policy is to run clippy and allow warnings temporarily while the repo is brought to a clean clippy baseline
+- long-term target is a clean clippy run and a stricter warning policy
 
 ## Error Handling
 
