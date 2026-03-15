@@ -72,9 +72,6 @@ struct ImageViewModel {
 struct PdfViewModel {
     title: String,
     file_path: String,
-    thumbnail_path: Option<String>,
-    current_page: u32,
-    total_pages: u32,
     open_action: LaunchActionModel,
 }
 
@@ -1111,16 +1108,16 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
 
     if let Some(embed) = note.embed.as_ref() {
         if matches!(note_type, NoteType::Youtube) {
-            if let Some(model) = build_youtube_view_model(note, Some(embed)) {
+            if let Some(model) = build_youtube_view_model(note, content, Some(embed)) {
                 return NoteViewModel::Youtube(model);
             }
-        } else if let Some(model) = build_embed_view_model(note, embed) {
+        } else if let Some(model) = build_embed_view_model(note, content, embed) {
             return model;
         }
     }
 
     match note_type {
-        NoteType::Image => build_image_view_model(note)
+        NoteType::Image => build_image_view_model(note, content)
             .map(NoteViewModel::Image)
             .unwrap_or_else(|| {
                 NoteViewModel::Error(ErrorViewModel {
@@ -1129,7 +1126,7 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
                     open_action: None,
                 })
             }),
-        NoteType::Pdf => build_pdf_view_model(note)
+        NoteType::Pdf => build_pdf_view_model(note, content)
             .map(NoteViewModel::Pdf)
             .unwrap_or_else(|| {
                 NoteViewModel::Error(ErrorViewModel {
@@ -1138,7 +1135,7 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
                     open_action: None,
                 })
             }),
-        NoteType::Youtube => build_youtube_view_model(note, note.embed.as_ref())
+        NoteType::Youtube => build_youtube_view_model(note, content, note.embed.as_ref())
             .map(NoteViewModel::Youtube)
             .unwrap_or_else(|| {
                 NoteViewModel::Error(ErrorViewModel {
@@ -1153,7 +1150,7 @@ fn build_note_view_model(note: Option<&NoteData>, content: &str) -> NoteViewMode
     }
 }
 
-fn build_image_view_model(note: &NoteData) -> Option<ImageViewModel> {
+fn build_image_view_model(note: &NoteData, content: &str) -> Option<ImageViewModel> {
     let media = note.media.as_ref()?;
     let image_path = media.file_path.as_ref()?.trim();
     if image_path.is_empty() {
@@ -1161,7 +1158,7 @@ fn build_image_view_model(note: &NoteData) -> Option<ImageViewModel> {
     }
 
     Some(ImageViewModel {
-        title: non_empty_title(note),
+        title: non_empty_title(note, content),
         image_path: image_path.to_string(),
         open_action: LaunchActionModel {
             label: "Open image".to_string(),
@@ -1170,7 +1167,7 @@ fn build_image_view_model(note: &NoteData) -> Option<ImageViewModel> {
     })
 }
 
-fn build_pdf_view_model(note: &NoteData) -> Option<PdfViewModel> {
+fn build_pdf_view_model(note: &NoteData, content: &str) -> Option<PdfViewModel> {
     let media = note.media.as_ref()?;
     let file_path = media.file_path.as_ref()?.trim();
     if file_path.is_empty() {
@@ -1178,17 +1175,8 @@ fn build_pdf_view_model(note: &NoteData) -> Option<PdfViewModel> {
     }
 
     Some(PdfViewModel {
-        title: non_empty_title(note),
+        title: non_empty_title(note, content),
         file_path: file_path.to_string(),
-        thumbnail_path: media
-            .thumbnail_path
-            .as_ref()
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .map(ToString::to_string),
-        current_page: 1,
-        total_pages: 1,
         open_action: LaunchActionModel {
             label: "Open PDF".to_string(),
             target: ExternalTarget::FilePath(file_path.to_string()),
@@ -1198,20 +1186,14 @@ fn build_pdf_view_model(note: &NoteData) -> Option<PdfViewModel> {
 
 fn build_youtube_view_model(
     note: &NoteData,
+    content: &str,
     embed: Option<&NoteEmbedDescriptor>,
 ) -> Option<YoutubeViewModel> {
-    let url = embed
-        .map(|embed| embed.source.trim().to_string())
-        .filter(|source| !source.is_empty())
-        .or_else(|| metadata_string(note, "url"))
-        .or_else(|| metadata_string(note, "source"))?;
+    let url = preferred_embed_target(note, content, embed)?;
 
     Some(YoutubeViewModel {
-        title: embed
-            .and_then(|embed| embed.title.clone())
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| non_empty_title(note)),
-        description: metadata_string(note, "description"),
+        title: preferred_embed_title(note, content, embed),
+        description: metadata_string(note, content, "description"),
         url: url.clone(),
         open_action: LaunchActionModel {
             label: "Open video".to_string(),
@@ -1220,52 +1202,86 @@ fn build_youtube_view_model(
     })
 }
 
-fn build_embed_view_model(note: &NoteData, embed: &NoteEmbedDescriptor) -> Option<NoteViewModel> {
+fn build_embed_view_model(
+    note: &NoteData,
+    content: &str,
+    embed: &NoteEmbedDescriptor,
+) -> Option<NoteViewModel> {
     if embed.kind.eq_ignore_ascii_case("youtube") {
-        return build_youtube_view_model(note, Some(embed)).map(NoteViewModel::Youtube);
+        return build_youtube_view_model(note, content, Some(embed)).map(NoteViewModel::Youtube);
     }
 
-    if embed.source.trim().is_empty() {
+    let Some(target) = preferred_embed_target(note, content, Some(embed)) else {
         return Some(NoteViewModel::Error(ErrorViewModel {
-            title: non_empty_title(note),
+            title: non_empty_title(note, content),
             message: format!(
                 "Embed kind '{}' is missing a primary action target.",
                 embed.kind
             ),
             open_action: None,
         }));
-    }
+    };
 
     Some(NoteViewModel::Embed(EmbedViewModel {
-        title: embed
-            .title
-            .clone()
-            .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| non_empty_title(note)),
-        description: metadata_string(note, "description"),
+        title: preferred_embed_title(note, content, Some(embed)),
+        description: metadata_string(note, content, "description"),
         kind: embed.kind.clone(),
         fallback: true,
         open_action: LaunchActionModel {
             label: "Open embed".to_string(),
-            target: ExternalTarget::Uri(embed.source.clone()),
+            target: ExternalTarget::Uri(target),
         },
     }))
 }
 
-fn metadata_string(note: &NoteData, key: &str) -> Option<String> {
-    note.metadata
-        .as_ref()
-        .and_then(|metadata| metadata.frontmatter.get(key))
-        .and_then(scalar_to_string)
-        .filter(|value| !value.trim().is_empty())
+fn preferred_embed_target(
+    note: &NoteData,
+    content: &str,
+    embed: Option<&NoteEmbedDescriptor>,
+) -> Option<String> {
+    metadata_string(note, content, "url")
+        .or_else(|| metadata_string(note, content, "source"))
+        .or_else(|| {
+            embed
+                .map(|embed| embed.source.trim().to_string())
+                .filter(|source| !source.is_empty())
+        })
 }
 
-fn non_empty_title(note: &NoteData) -> String {
-    if note.title.trim().is_empty() {
-        extract_title_from_markdown(&note.content)
-    } else {
-        note.title.clone()
-    }
+fn preferred_embed_title(
+    note: &NoteData,
+    content: &str,
+    embed: Option<&NoteEmbedDescriptor>,
+) -> String {
+    metadata_string(note, content, "title")
+        .or_else(|| {
+            embed
+                .and_then(|embed| embed.title.clone())
+                .filter(|title| !title.trim().is_empty())
+        })
+        .unwrap_or_else(|| non_empty_title(note, content))
+}
+
+fn metadata_string(note: &NoteData, content: &str, key: &str) -> Option<String> {
+    let (frontmatter, _) = split_frontmatter(content);
+    let from_source = frontmatter
+        .as_deref()
+        .map(parse_frontmatter_map)
+        .and_then(|(map, _, _)| map.get(key).cloned())
+        .and_then(|value| scalar_to_string(&value))
+        .filter(|value| !value.trim().is_empty());
+
+    from_source.or_else(|| {
+        note.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.frontmatter.get(key))
+            .and_then(scalar_to_string)
+            .filter(|value| !value.trim().is_empty())
+    })
+}
+
+fn non_empty_title(note: &NoteData, content: &str) -> String {
+    preferred_note_title(Some(note), content)
 }
 
 fn render_note_view(
@@ -1303,35 +1319,7 @@ fn render_note_view(
         }
         NoteViewModel::Pdf(model) => {
             preview_box.append(&heading_label(&model.title));
-            if let Some(thumbnail_path) = model.thumbnail_path.as_deref() {
-                let picture = gtk::Picture::for_filename(thumbnail_path);
-                picture.set_can_shrink(true);
-                picture.set_hexpand(true);
-                picture.set_alternative_text(Some(&model.title));
-                preview_box.append(&picture);
-            } else {
-                preview_box.append(&body_label(
-                    "PDF preview thumbnail unavailable. Open the document externally to read it.",
-                ));
-            }
-
-            let controls = gtk::Box::builder()
-                .orientation(gtk::Orientation::Horizontal)
-                .spacing(8)
-                .build();
-            let previous_button = gtk::Button::with_label("Previous");
-            previous_button.set_sensitive(false);
-            let next_button = gtk::Button::with_label("Next");
-            next_button.set_sensitive(false);
-            let page_label = gtk::Label::new(Some(&format!(
-                "Page {} of {}",
-                model.current_page, model.total_pages
-            )));
-            page_label.set_xalign(0.0);
-            controls.append(&previous_button);
-            controls.append(&page_label);
-            controls.append(&next_button);
-            preview_box.append(&controls);
+            preview_box.append(&body_label("PDF notes open in the system viewer from GTK."));
             preview_box.append(&action_button(
                 model.open_action.clone(),
                 Rc::clone(open_target),
@@ -2045,7 +2033,7 @@ mod tests {
     }
 
     #[test]
-    fn pdf_note_builds_view_model_with_navigation_and_open_action() {
+    fn pdf_note_builds_view_model_with_open_action() {
         let note = test_note_with_media(
             Some(NoteType::Pdf),
             None,
@@ -2061,9 +2049,6 @@ mod tests {
             NoteViewModel::Pdf(PdfViewModel {
                 title: "Note".to_string(),
                 file_path: "/tmp/example.pdf".to_string(),
-                thumbnail_path: Some("/tmp/example.png".to_string()),
-                current_page: 1,
-                total_pages: 1,
                 open_action: LaunchActionModel {
                     label: "Open PDF".to_string(),
                     target: ExternalTarget::FilePath("/tmp/example.pdf".to_string()),
@@ -2090,6 +2075,53 @@ mod tests {
                 open_action: LaunchActionModel {
                     label: "Open video".to_string(),
                     target: ExternalTarget::Uri("https://www.youtube.com/watch?v=test".to_string()),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn youtube_view_model_prefers_current_source_frontmatter_over_stale_note_metadata() {
+        let mut note = test_note(Some(NoteType::Youtube), None);
+        note.title = "Stored title".to_string();
+        note.metadata = Some(crate::client::NoteMetadata {
+            frontmatter: {
+                let mut map = Map::new();
+                map.insert(
+                    "description".to_string(),
+                    Value::String("Old description".to_string()),
+                );
+                map.insert(
+                    "url".to_string(),
+                    Value::String("https://old.example".to_string()),
+                );
+                map
+            },
+            tags: Vec::new(),
+        });
+        note.embed = Some(NoteEmbedDescriptor {
+            kind: "youtube".to_string(),
+            source: "https://www.youtube.com/watch?v=test".to_string(),
+            title: Some("Stale embed title".to_string()),
+        });
+        let content = concat!(
+            "---\n",
+            "title: Frontmatter Title\n",
+            "description: Fresh description\n",
+            "url: https://fresh.example\n",
+            "---\n",
+            "# Body Title\n",
+        );
+
+        assert_eq!(
+            build_note_view_model(Some(&note), content),
+            NoteViewModel::Youtube(YoutubeViewModel {
+                title: "Frontmatter Title".to_string(),
+                description: Some("Fresh description".to_string()),
+                url: "https://fresh.example".to_string(),
+                open_action: LaunchActionModel {
+                    label: "Open video".to_string(),
+                    target: ExternalTarget::Uri("https://fresh.example".to_string()),
                 },
             })
         );
@@ -2137,6 +2169,39 @@ mod tests {
                 open_action: LaunchActionModel {
                     label: "Open embed".to_string(),
                     target: ExternalTarget::Uri("https://www.figma.com/file/demo".to_string()),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn unsupported_embed_prefers_current_source_frontmatter_title_and_url() {
+        let mut note = test_note(Some(NoteType::Markdown), None);
+        note.embed = Some(NoteEmbedDescriptor {
+            kind: "figma".to_string(),
+            source: "https://www.figma.com/file/demo".to_string(),
+            title: Some("Stored mockup".to_string()),
+        });
+
+        let content = concat!(
+            "---\n",
+            "title: Fresh mockup\n",
+            "description: Fresh embed description\n",
+            "url: https://www.figma.com/proto/fresh\n",
+            "---\n",
+            "# Body Title\n",
+        );
+
+        assert_eq!(
+            build_note_view_model(Some(&note), content),
+            NoteViewModel::Embed(EmbedViewModel {
+                title: "Fresh mockup".to_string(),
+                description: Some("Fresh embed description".to_string()),
+                kind: "figma".to_string(),
+                fallback: true,
+                open_action: LaunchActionModel {
+                    label: "Open embed".to_string(),
+                    target: ExternalTarget::Uri("https://www.figma.com/proto/fresh".to_string()),
                 },
             })
         );

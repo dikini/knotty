@@ -139,22 +139,22 @@ fn image_note_without_media_path_enters_error_state() {
 }
 ```
 
-### Task GTN-003: Implement PDF note rendering
+### Task GTN-003: Implement PDF system-open fallback
 
 **Files**
 - Modify: `/home/dikini/Projects/knot-gtk/src/ui/editor.rs`
 
 **Steps**
-1. Add failing tests for PDF view mode and basic page/loading behavior.
+1. Add failing tests for PDF view mode and external-open fallback behavior.
 2. Confirm red.
-3. Implement a minimal PDF surface with readable loading/error states.
+3. Implement a minimal PDF surface that explains the fallback and opens the file in the system viewer.
 4. Re-run targeted tests until green.
-5. Review whether basic page navigation needs small helper widgets now or in a follow-up task.
+5. Review whether in-app PDF rendering belongs in a later dedicated slice.
 
 **Advice**
 
-- Keep the first PDF surface intentionally small: loading, error, visible page, maybe next/previous.
-- Avoid building a full document viewer unless the tests require it.
+- Keep the first PDF surface intentionally small: clear fallback text plus a primary open action.
+- Avoid building a document viewer in this slice.
 
 ### Task GTN-004: Implement YouTube note rendering and open action
 

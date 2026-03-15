@@ -21,6 +21,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add the GTK editor slice with fixed icon mode routing, source-authoritative dirty/save handling, dirty note-switch prompting, baseline markdown commands, and pinned-plus-generic metadata editing.
 - Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
 - Add GTK note-type routing helpers plus image, PDF, YouTube, and embed view surfaces driven by note contract metadata, with shared explorer iconography and note-type follow-up notes.
+- Narrow GTK PDF handling to a system-viewer fallback and keep note-type view cards aligned with the current source/frontmatter state instead of stale loaded-note metadata.
 - Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 - Restore explicit regression coverage for note-load cancellation after rebasing the explorer review fixes.
 

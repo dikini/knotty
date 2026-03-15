@@ -40,7 +40,7 @@ Add note-type-aware behavior so GTK can handle markdown, YouTube, image, PDF, an
 
 **FR-4**: Media surfaces
 - Image notes must render the image safely.
-- PDF notes must render a readable PDF surface with basic navigation controls.
+- PDF notes must provide a stable fallback surface with a primary action that opens the document in the system PDF viewer.
 
 **FR-5**: Embed support
 - If note embed metadata is present, GTK must render a safe equivalent surface or a clear fallback that preserves the primary action.
@@ -57,7 +57,7 @@ Add note-type-aware behavior so GTK can handle markdown, YouTube, image, PDF, an
 
 - [ ] Note type data drives iconography, mode availability, and view routing.
 - [ ] Image notes render with tests.
-- [ ] PDF notes render with tests.
+- [ ] PDF notes expose a tested system-open fallback.
 - [ ] YouTube notes render and can open their primary link.
 - [ ] Embed metadata has either a GTK rendering or a tested fallback action.
 
