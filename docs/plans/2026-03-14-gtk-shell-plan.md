@@ -115,6 +115,11 @@ After `GTS-001`, `GTS-002` and `GTS-005` can proceed in parallel if file ownersh
 | GTS-006A | GTS-006 | Run slice verification | repo-wide | - |
 | GTS-006B | GTS-006 | Fix slice-only regressions | touched files only | unrelated modules |
 
+### Review Follow-up Checks
+
+- Shared note-load completion must only route back to Notes when the initiating context requires it.
+- Search-result note loads may return to Notes; sidebar/context note loads must not infer that from current tool mode alone.
+
 ### Task GTS-001: Add shell-state model and unit tests
 
 **Files**

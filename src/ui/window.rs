@@ -17,6 +17,12 @@ type NoteLoadState = RequestState<NoteData, String>;
 type NoteLoadResult = Result<NoteData, String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteLoadOrigin {
+    ContextSelection,
+    SearchSelection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartupAction {
     RetryDaemon,
     OpenVault,
@@ -317,6 +323,7 @@ fn begin_note_load_with_dispatch<Dispatch, OnResult>(
 }
 
 fn build_note_selection_handler(
+    origin: NoteLoadOrigin,
     client: Rc<KnotdClient>,
     editor: Rc<NoteEditor>,
     current_note: Rc<RefCell<Option<NoteData>>>,
@@ -369,7 +376,7 @@ fn build_note_selection_handler(
                         *current_note.borrow_mut() = Some(note);
                         let mut shell_state = shell_state.borrow_mut();
                         shell_state.set_note_selected(true);
-                        if should_route_loaded_note_to_notes(shell_state.tool_mode()) {
+                        if should_route_loaded_note_to_notes(origin, shell_state.tool_mode()) {
                             shell_state.select_tool(ToolMode::Notes);
                             apply_shell_state(
                                 &shell_state,
@@ -391,8 +398,10 @@ fn build_note_selection_handler(
     })
 }
 
-fn should_route_loaded_note_to_notes(tool_mode: ToolMode) -> bool {
-    matches!(tool_mode, ToolMode::Notes | ToolMode::Search)
+fn should_route_loaded_note_to_notes(origin: NoteLoadOrigin, tool_mode: ToolMode) -> bool {
+    matches!(tool_mode, ToolMode::Notes)
+        || (matches!(origin, NoteLoadOrigin::SearchSelection)
+            && matches!(tool_mode, ToolMode::Search))
 }
 
 fn focus_search_shell_state(shell_state: &mut ShellState) {
@@ -715,6 +724,7 @@ impl KnotWindow {
         });
 
         let context_note_selected = build_note_selection_handler(
+            NoteLoadOrigin::ContextSelection,
             Rc::clone(&self.client),
             Rc::clone(&self.editor),
             Rc::clone(&self.current_note),
@@ -733,6 +743,7 @@ impl KnotWindow {
             .connect_note_selected(move |path| context_note_selected(path));
 
         let search_note_selected = build_note_selection_handler(
+            NoteLoadOrigin::SearchSelection,
             Rc::clone(&self.client),
             Rc::clone(&self.editor),
             Rc::clone(&self.current_note),
@@ -1143,11 +1154,27 @@ mod tests {
     }
 
     #[test]
-    fn note_load_completion_only_routes_to_notes_from_notes_or_search() {
-        assert!(should_route_loaded_note_to_notes(ToolMode::Notes));
-        assert!(should_route_loaded_note_to_notes(ToolMode::Search));
-        assert!(!should_route_loaded_note_to_notes(ToolMode::Graph));
-        assert!(!should_route_loaded_note_to_notes(ToolMode::Settings));
+    fn note_load_completion_routes_to_notes_only_for_matching_origin() {
+        assert!(should_route_loaded_note_to_notes(
+            NoteLoadOrigin::ContextSelection,
+            ToolMode::Notes
+        ));
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::ContextSelection,
+            ToolMode::Search
+        ));
+        assert!(should_route_loaded_note_to_notes(
+            NoteLoadOrigin::SearchSelection,
+            ToolMode::Search
+        ));
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::ContextSelection,
+            ToolMode::Graph
+        ));
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::SearchSelection,
+            ToolMode::Settings
+        ));
     }
 
     #[test]

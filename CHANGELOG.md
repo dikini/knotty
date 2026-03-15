@@ -29,3 +29,4 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Complete the GTK shell search contract by routing search RPCs through the background bridge, adding explicit search view states, wiring the search focus shortcut, and simplifying startup-state refresh handling.
 - Keep startup-only surfaces from being bypassed by the search shortcut, and avoid sticky search suppression when clearing an already-empty query.
 - Keep the search shortcut cheap by consulting cached startup state, and refresh daemon-unavailable detail text when startup diagnostics change.
+- Keep async note-load completion from forcing Search back to Notes unless the load was explicitly initiated from a search result.
