@@ -14,6 +14,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Expand GTK note DTOs to include runtime contract fields for mode availability, metadata, embeds, media, and request-state helpers for async UI flows.
 - Add a GTK-safe background bridge and migrate note loading to request-state-driven async execution.
 - Add a discoverable `docs/notes/` area for per-subsystem future opportunities and seed the shell follow-up notes.
+- Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
 
 ### Changed
 

@@ -18,3 +18,4 @@ This directory stores per-subsystem notes about future opportunities discovered 
 ## Current Files
 
 - `shell.md`: shell and search follow-up opportunities
+- `explorer.md`: explorer tree and mutation follow-up opportunities

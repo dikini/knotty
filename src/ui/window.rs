@@ -7,6 +7,7 @@ use crate::client::{KnotdClient, NoteData};
 use crate::ui::async_bridge;
 use crate::ui::context_panel::ContextPanel;
 use crate::ui::editor::NoteEditor;
+use crate::ui::explorer::NoteSwitchDecision;
 use crate::ui::inspector_rail::InspectorRail;
 use crate::ui::request_state::RequestState;
 use crate::ui::search_view::SearchView;
@@ -426,6 +427,33 @@ fn focus_search_shell(
     );
 }
 
+fn clear_active_note(
+    window: &libadwaita::ApplicationWindow,
+    editor: &NoteEditor,
+    current_note: &Rc<RefCell<Option<NoteData>>>,
+    shell_state: &Rc<RefCell<ShellState>>,
+    tool_rail: &ToolRail,
+    context_panel: &ContextPanel,
+    content_stack: &gtk::Stack,
+    inspector_rail: &InspectorRail,
+    search_view: &SearchView,
+) {
+    window.set_title(Some("Knot"));
+    editor.clear();
+    *current_note.borrow_mut() = None;
+
+    let mut shell_state = shell_state.borrow_mut();
+    shell_state.set_note_selected(false);
+    apply_shell_state(
+        &shell_state,
+        tool_rail,
+        context_panel,
+        content_stack,
+        inspector_rail,
+        search_view,
+    );
+}
+
 impl KnotWindow {
     pub fn new(app: &libadwaita::Application) -> Self {
         let client = KnotdClient::new();
@@ -739,6 +767,14 @@ impl KnotWindow {
         );
         self.context_panel
             .connect_note_selected(move |path| context_note_selected(path));
+        let editor = Rc::clone(&self.editor);
+        self.context_panel.connect_note_switch_guard(move |_| {
+            if editor.is_modified() {
+                NoteSwitchDecision::Deny
+            } else {
+                NoteSwitchDecision::Allow
+            }
+        });
 
         let search_note_selected = build_note_selection_handler(
             NoteLoadOrigin::SearchSelection,
@@ -757,6 +793,29 @@ impl KnotWindow {
         );
         self.search_view
             .connect_result_selected(move |path| search_note_selected(path));
+
+        let window = self.window.clone();
+        let editor = Rc::clone(&self.editor);
+        let current_note = Rc::clone(&self.current_note);
+        let shell_state = Rc::clone(&self.shell_state);
+        let tool_rail = self.tool_rail.clone();
+        let context_panel = Rc::clone(&self.context_panel);
+        let content_stack = self.content_stack.clone();
+        let inspector_rail = self.inspector_rail.clone();
+        let search_view = Rc::clone(&self.search_view);
+        self.context_panel.connect_selection_cleared(move || {
+            clear_active_note(
+                &window,
+                editor.as_ref(),
+                &current_note,
+                &shell_state,
+                &tool_rail,
+                context_panel.as_ref(),
+                &content_stack,
+                &inspector_rail,
+                search_view.as_ref(),
+            );
+        });
 
         let startup_refresh = StartupRefreshHandles {
             client: Rc::clone(&self.client),
@@ -1085,6 +1144,18 @@ mod tests {
         assert!(!should_route_loaded_note_to_notes(
             NoteLoadOrigin::SearchSelection,
             ToolMode::Settings
+        ));
+    }
+
+    #[test]
+    fn context_selection_does_not_reuse_search_only_routing() {
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::ContextSelection,
+            ToolMode::Search
+        ));
+        assert!(should_route_loaded_note_to_notes(
+            NoteLoadOrigin::SearchSelection,
+            ToolMode::Search
         ));
     }
 
