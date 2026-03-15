@@ -204,6 +204,35 @@ fn apply_startup_state(
     }
 }
 
+fn refresh_startup_shell(
+    client: &KnotdClient,
+    shell_state: &ShellState,
+    vault_label: &gtk::Label,
+    retry_startup_btn: &gtk::Button,
+    open_vault_btn: &gtk::Button,
+    create_vault_btn: &gtk::Button,
+    tool_rail: &ToolRail,
+    context_panel: &ContextPanel,
+    content_stack: &gtk::Stack,
+    inspector_rail: &InspectorRail,
+    search_view: &SearchView,
+) {
+    let startup_state = determine_startup_state(client);
+    apply_startup_state(
+        &startup_state,
+        shell_state,
+        vault_label,
+        retry_startup_btn,
+        open_vault_btn,
+        create_vault_btn,
+        tool_rail,
+        context_panel,
+        content_stack,
+        inspector_rail,
+        search_view,
+    );
+}
+
 fn choose_vault_directory<F>(
     window: &libadwaita::ApplicationWindow,
     title: &str,
@@ -342,6 +371,29 @@ fn build_note_selection_handler(
 
 fn should_route_loaded_note_to_notes(tool_mode: ToolMode) -> bool {
     matches!(tool_mode, ToolMode::Notes | ToolMode::Search)
+}
+
+fn focus_search_shell_state(shell_state: &mut ShellState) {
+    shell_state.select_tool(ToolMode::Search);
+}
+
+fn focus_search_shell(
+    shell_state: &mut ShellState,
+    tool_rail: &ToolRail,
+    context_panel: &ContextPanel,
+    content_stack: &gtk::Stack,
+    inspector_rail: &InspectorRail,
+    search_view: &SearchView,
+) {
+    focus_search_shell_state(shell_state);
+    apply_shell_state(
+        shell_state,
+        tool_rail,
+        context_panel,
+        content_stack,
+        inspector_rail,
+        search_view,
+    );
 }
 
 impl KnotWindow {
@@ -568,9 +620,32 @@ impl KnotWindow {
             &win.search_view,
         );
 
+        win.install_window_actions();
         win.setup_signals();
 
         win
+    }
+
+    fn install_window_actions(&self) {
+        let action = gio::SimpleAction::new("focus-search", None);
+        let shell_state = Rc::clone(&self.shell_state);
+        let tool_rail = self.tool_rail.clone();
+        let context_panel = Rc::clone(&self.context_panel);
+        let content_stack = self.content_stack.clone();
+        let inspector_rail = self.inspector_rail.clone();
+        let search_view = Rc::clone(&self.search_view);
+        action.connect_activate(move |_action, _param| {
+            let mut shell_state = shell_state.borrow_mut();
+            focus_search_shell(
+                &mut shell_state,
+                &tool_rail,
+                &context_panel.borrow(),
+                &content_stack,
+                &inspector_rail,
+                search_view.as_ref(),
+            );
+        });
+        self.window.add_action(&action);
     }
 
     fn setup_signals(&self) {
@@ -661,9 +736,8 @@ impl KnotWindow {
         let inspector_rail = self.inspector_rail.clone();
         let search_view = Rc::clone(&self.search_view);
         self.retry_startup_btn.connect_clicked(move |_| {
-            let startup_state = determine_startup_state(client.as_ref());
-            apply_startup_state(
-                &startup_state,
+            refresh_startup_shell(
+                client.as_ref(),
                 &shell_state.borrow(),
                 &vault_label,
                 &retry_startup_btn,
@@ -705,9 +779,8 @@ impl KnotWindow {
                 if let Err(error) = client.open_vault(&path) {
                     log::error!("Failed to open vault {}: {}", path, error);
                 }
-                let startup_state = determine_startup_state(client.as_ref());
-                apply_startup_state(
-                    &startup_state,
+                refresh_startup_shell(
+                    client.as_ref(),
                     &shell_state.borrow(),
                     &vault_label,
                     &retry_startup_btn,
@@ -750,9 +823,8 @@ impl KnotWindow {
                 if let Err(error) = client.create_vault(&path) {
                     log::error!("Failed to create vault {}: {}", path, error);
                 }
-                let startup_state = determine_startup_state(client.as_ref());
-                apply_startup_state(
-                    &startup_state,
+                refresh_startup_shell(
+                    client.as_ref(),
                     &shell_state.borrow(),
                     &vault_label,
                     &retry_startup_btn,
@@ -1009,5 +1081,17 @@ mod tests {
         assert!(should_route_loaded_note_to_notes(ToolMode::Search));
         assert!(!should_route_loaded_note_to_notes(ToolMode::Graph));
         assert!(!should_route_loaded_note_to_notes(ToolMode::Settings));
+    }
+
+    #[test]
+    fn focus_search_shell_routes_to_search_surface_and_hides_inspector() {
+        let mut shell_state = ShellState::default();
+
+        shell_state.select_tool(ToolMode::Graph);
+        focus_search_shell_state(&mut shell_state);
+
+        assert_eq!(shell_state.tool_mode(), ToolMode::Search);
+        assert_eq!(content_child_name_for_shell(&shell_state), "search");
+        assert_eq!(shell_state.inspector_mode(), InspectorMode::Hidden);
     }
 }

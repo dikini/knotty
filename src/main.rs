@@ -16,6 +16,8 @@ pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 const APP_ID: &str = "com.example.Knot";
+const SEARCH_FOCUS_ACTION: &str = "win.focus-search";
+const SEARCH_FOCUS_ACCELS: &[&str] = &["<Control>k"];
 
 fn load_css() {
     let css = include_str!("../data/style.css");
@@ -150,6 +152,7 @@ fn setup_shortcuts(app: &libadwaita::Application) {
     app.set_accels_for_action("app.new-note", &["<Control>n"]);
     app.set_accels_for_action("app.close", &["<Control>w"]);
     app.set_accels_for_action("app.toggle-sidebar", &["F9"]);
+    app.set_accels_for_action(SEARCH_FOCUS_ACTION, SEARCH_FOCUS_ACCELS);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
 }
 
@@ -176,5 +179,16 @@ fn show_about_dialog(app: &libadwaita::Application) {
         dialog.present(Some(&win));
     } else {
         dialog.present(None::<&gtk::Window>);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_focus_shortcut_is_bound_to_window_action() {
+        assert_eq!(SEARCH_FOCUS_ACTION, "win.focus-search");
+        assert_eq!(SEARCH_FOCUS_ACCELS, &["<Control>k"]);
     }
 }

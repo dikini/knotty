@@ -207,7 +207,7 @@ fn selecting_graph_tool_switches_context_panel_to_graph() {
 **Steps**
 1. Add tests for focus shortcut, empty states, keyboard navigation, and result activation.
 2. Confirm red.
-3. Implement the missing shortcut/focus wiring and complete state transitions.
+3. Implement the missing shortcut/focus wiring, move `search_notes` off the GTK thread via the async bridge, and complete explicit `idle`/`loading`/`empty`/`results`/`error` state transitions.
 4. Re-run targeted tests until green.
 5. Review debounce behavior and ensure search activation delegates to the central note-load path.
 
