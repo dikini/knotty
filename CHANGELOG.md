@@ -19,6 +19,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Added
 
+- Add the GTK automation design note and tighten the automation spec/plan/reference around a gated daemon-mediated protocol with discovery, semantic snapshots, semantic actions, and stable result codes for later `knotd` integration.
 - Add the GTK settings slice with left-pane section navigation, hidden inspector behavior in settings mode, daemon-backed vault/plugin/maintenance sections, local app-preference persistence in `~/.config/knot/knotty.toml`, and a settings follow-up note file.
 - Add the GTK settings design note and tighten the settings spec/plan around left-pane section navigation, hidden inspector behavior, the `Controls` section, and `~/.config/knot/knotty.toml` as the app-preferences store.
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.
