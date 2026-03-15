@@ -3,22 +3,12 @@
 use crate::ui::tool_rail::ToolMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContextMode {
-    Notes,
-    Search,
-    Graph,
-    Settings,
-    Empty,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentMode {
     Welcome,
     Note,
     Search,
     Graph,
     Settings,
-    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,15 +35,6 @@ impl ShellState {
 
     pub fn tool_mode(&self) -> ToolMode {
         self.tool_mode
-    }
-
-    pub fn context_mode(&self) -> ContextMode {
-        match self.tool_mode {
-            ToolMode::Notes => ContextMode::Notes,
-            ToolMode::Search => ContextMode::Search,
-            ToolMode::Graph => ContextMode::Graph,
-            ToolMode::Settings => ContextMode::Settings,
-        }
     }
 
     pub fn content_mode(&self) -> ContentMode {
@@ -98,7 +79,6 @@ mod tests {
         let mut shell = ShellState::default();
 
         assert_eq!(shell.tool_mode(), ToolMode::Notes);
-        assert_eq!(shell.context_mode(), ContextMode::Notes);
         assert_eq!(shell.content_mode(), ContentMode::Welcome);
         assert_eq!(shell.inspector_mode(), InspectorMode::Details);
 
@@ -114,7 +94,6 @@ mod tests {
         shell.select_tool(ToolMode::Graph);
 
         assert_eq!(shell.tool_mode(), ToolMode::Graph);
-        assert_eq!(shell.context_mode(), ContextMode::Graph);
         assert_eq!(shell.content_mode(), ContentMode::Graph);
         assert_eq!(shell.inspector_mode(), InspectorMode::Details);
     }
@@ -126,7 +105,6 @@ mod tests {
 
         shell.select_tool(ToolMode::Search);
 
-        assert_eq!(shell.context_mode(), ContextMode::Search);
         assert_eq!(shell.content_mode(), ContentMode::Search);
         assert_eq!(shell.inspector_mode(), InspectorMode::Hidden);
     }
@@ -138,7 +116,6 @@ mod tests {
         shell.select_tool(ToolMode::Settings);
 
         assert_eq!(shell.tool_mode(), ToolMode::Settings);
-        assert_eq!(shell.context_mode(), ContextMode::Settings);
         assert_eq!(shell.content_mode(), ContentMode::Settings);
         assert_eq!(shell.inspector_mode(), InspectorMode::Settings);
     }

@@ -86,13 +86,11 @@ The GTK4 app integrates with knotd via JSON-RPC to provide:
 - `is_vault_open()` - Check vault status
 
 ### Note Operations
-- `list_notes()` - List all notes
 - `get_note(path)` - Load note content
 - `save_note(path, content)` - Save note changes
 - `create_note(path, content)` - Create new note
 - `delete_note(path)` - Delete a note
 - `rename_note(old_path, new_path)` - Rename/move note
-- `get_recent_notes(limit)` - Get recently modified notes
 
 ### Explorer
 - `get_explorer_tree()` - Get folder/note tree structure
@@ -103,7 +101,6 @@ The GTK4 app integrates with knotd via JSON-RPC to provide:
 
 ### Search
 - `search_notes(query, limit)` - Full-text search
-- `search_suggestions(query, limit)` - Get search suggestions
 
 ### Graph
 - `get_graph_layout(width, height)` - Get graph layout for visualization

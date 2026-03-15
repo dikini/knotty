@@ -16,6 +16,9 @@ use crate::ui::tool_rail::{ToolMode, ToolRail};
 
 type NoteLoadState = RequestState<NoteData, String>;
 type NoteLoadResult = Result<NoteData, String>;
+type NoteLoadDispatcher = Rc<dyn Fn(NoteLoadOrigin, &str)>;
+#[cfg(test)]
+type DeferredUiCallback = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NoteLoadOrigin {
@@ -66,20 +69,35 @@ pub struct KnotWindow {
 }
 
 #[derive(Clone)]
-struct StartupRefreshHandles {
-    client: Rc<KnotdClient>,
-    startup_state: Rc<RefCell<StartupState>>,
+struct ShellUiHandles {
     shell_state: Rc<RefCell<ShellState>>,
-    vault_label: gtk::Label,
-    daemon_detail_label: gtk::Label,
-    retry_startup_btn: gtk::Button,
-    open_vault_btn: gtk::Button,
-    create_vault_btn: gtk::Button,
     tool_rail: ToolRail,
     context_panel: Rc<ContextPanel>,
     content_stack: gtk::Stack,
     inspector_rail: InspectorRail,
     search_view: Rc<SearchView>,
+}
+
+#[derive(Clone)]
+struct StartupRefreshHandles {
+    client: Rc<KnotdClient>,
+    startup_state: Rc<RefCell<StartupState>>,
+    vault_label: gtk::Label,
+    daemon_detail_label: gtk::Label,
+    retry_startup_btn: gtk::Button,
+    open_vault_btn: gtk::Button,
+    create_vault_btn: gtk::Button,
+    shell_ui: ShellUiHandles,
+}
+
+#[derive(Clone)]
+struct NoteSessionHandles {
+    window: libadwaita::ApplicationWindow,
+    editor: Rc<NoteEditor>,
+    current_note: Rc<RefCell<Option<NoteData>>>,
+    note_load_state: Rc<RefCell<NoteLoadState>>,
+    note_load_generation: Rc<RefCell<u64>>,
+    shell_ui: ShellUiHandles,
 }
 
 fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadResult) {
@@ -175,7 +193,6 @@ fn content_child_name_for_shell(shell_state: &ShellState) -> &'static str {
         crate::ui::shell_state::ContentMode::Search => "search",
         crate::ui::shell_state::ContentMode::Graph => "graph",
         crate::ui::shell_state::ContentMode::Settings => "settings",
-        crate::ui::shell_state::ContentMode::Error => "daemon-unavailable",
     }
 }
 
@@ -206,66 +223,62 @@ fn apply_shell_state(
     }
 }
 
-fn apply_startup_state(
-    state: &StartupState,
-    startup_state_cell: &RefCell<StartupState>,
-    shell_state: &ShellState,
-    vault_label: &gtk::Label,
-    daemon_detail_label: &gtk::Label,
-    retry_startup_btn: &gtk::Button,
-    open_vault_btn: &gtk::Button,
-    create_vault_btn: &gtk::Button,
-    tool_rail: &ToolRail,
-    context_panel: &ContextPanel,
-    content_stack: &gtk::Stack,
-    inspector_rail: &InspectorRail,
-    search_view: &SearchView,
-) {
-    *startup_state_cell.borrow_mut() = state.clone();
-    vault_label.set_label(&startup_header_text(state));
-    daemon_detail_label.set_label(&startup_detail_text(state));
+fn apply_startup_state(state: &StartupState, handles: &StartupRefreshHandles) {
+    *handles.startup_state.borrow_mut() = state.clone();
+    handles.vault_label.set_label(&startup_header_text(state));
+    handles
+        .daemon_detail_label
+        .set_label(&startup_detail_text(state));
     let startup_actions = startup_action_specs(state);
-    retry_startup_btn.set_visible(startup_actions.contains(&StartupAction::RetryDaemon));
-    open_vault_btn.set_visible(startup_actions.contains(&StartupAction::OpenVault));
-    create_vault_btn.set_visible(startup_actions.contains(&StartupAction::CreateVault));
+    handles
+        .retry_startup_btn
+        .set_visible(startup_actions.contains(&StartupAction::RetryDaemon));
+    handles
+        .open_vault_btn
+        .set_visible(startup_actions.contains(&StartupAction::OpenVault));
+    handles
+        .create_vault_btn
+        .set_visible(startup_actions.contains(&StartupAction::CreateVault));
 
     let shell_chrome_visible = startup_shell_chrome_visible(state);
-    tool_rail.widget().set_visible(shell_chrome_visible);
-    context_panel.widget().set_visible(shell_chrome_visible);
-    inspector_rail.widget().set_visible(shell_chrome_visible);
+    handles
+        .shell_ui
+        .tool_rail
+        .widget()
+        .set_visible(shell_chrome_visible);
+    handles
+        .shell_ui
+        .context_panel
+        .widget()
+        .set_visible(shell_chrome_visible);
+    handles
+        .shell_ui
+        .inspector_rail
+        .widget()
+        .set_visible(shell_chrome_visible);
 
     if shell_chrome_visible {
+        let shell_state = handles.shell_ui.shell_state.borrow();
         apply_shell_state(
-            shell_state,
-            tool_rail,
-            context_panel,
-            content_stack,
-            inspector_rail,
-            search_view,
+            &shell_state,
+            &handles.shell_ui.tool_rail,
+            handles.shell_ui.context_panel.as_ref(),
+            &handles.shell_ui.content_stack,
+            &handles.shell_ui.inspector_rail,
+            handles.shell_ui.search_view.as_ref(),
         );
     } else {
-        content_stack.set_visible_child_name(startup_content_child_name(state));
-        inspector_rail.set_open(false);
+        handles
+            .shell_ui
+            .content_stack
+            .set_visible_child_name(startup_content_child_name(state));
+        handles.shell_ui.inspector_rail.set_open(false);
     }
 }
 
 fn refresh_startup_shell(handles: &StartupRefreshHandles) {
     let startup_state = determine_startup_state(handles.client.as_ref());
-    apply_startup_state(
-        &startup_state,
-        handles.startup_state.as_ref(),
-        &handles.shell_state.borrow(),
-        &handles.vault_label,
-        &handles.daemon_detail_label,
-        &handles.retry_startup_btn,
-        &handles.open_vault_btn,
-        &handles.create_vault_btn,
-        &handles.tool_rail,
-        handles.context_panel.as_ref(),
-        &handles.content_stack,
-        &handles.inspector_rail,
-        handles.search_view.as_ref(),
-    );
+    apply_startup_state(&startup_state, handles);
 }
 
 fn choose_vault_directory<F>(
@@ -331,25 +344,15 @@ fn begin_note_load_with_dispatch<Dispatch, OnResult>(
 
 fn build_note_load_dispatcher(
     client: Rc<KnotdClient>,
-    editor: Rc<NoteEditor>,
-    current_note: Rc<RefCell<Option<NoteData>>>,
-    note_load_state: Rc<RefCell<NoteLoadState>>,
-    note_load_generation: Rc<RefCell<u64>>,
-    shell_state: Rc<RefCell<ShellState>>,
-    window: libadwaita::ApplicationWindow,
-    content_stack: gtk::Stack,
-    context_panel: Rc<ContextPanel>,
-    inspector_rail: InspectorRail,
-    tool_rail: ToolRail,
-    search_view: Rc<SearchView>,
-) -> Rc<dyn Fn(NoteLoadOrigin, &str)> {
+    session: NoteSessionHandles,
+) -> NoteLoadDispatcher {
     Rc::new(move |origin, path| {
         log::info!("Loading note: {}", path);
-        window.set_title(Some("Loading note... — Knot"));
+        session.window.set_title(Some("Loading note... — Knot"));
         let load_path = path.to_string();
         let log_path = load_path.clone();
         let generation = {
-            let mut current = note_load_generation.borrow_mut();
+            let mut current = session.note_load_generation.borrow_mut();
             *current += 1;
             *current
         };
@@ -357,46 +360,38 @@ fn build_note_load_dispatcher(
         begin_note_load_with_dispatch(
             client.as_ref().clone(),
             load_path,
-            Rc::clone(&note_load_state),
+            Rc::clone(&session.note_load_state),
             generation,
-            Rc::clone(&note_load_generation),
+            Rc::clone(&session.note_load_generation),
             |work, ui| {
-                async_bridge::run_background(move || work()).attach_local(move |result| {
+                async_bridge::run_background(work).attach_local(move |result| {
                     ui(result);
                 });
             },
             {
-                let window = window.clone();
-                let editor = Rc::clone(&editor);
-                let current_note = Rc::clone(&current_note);
-                let content_stack = content_stack.clone();
-                let shell_state = Rc::clone(&shell_state);
-                let context_panel = Rc::clone(&context_panel);
-                let inspector_rail = inspector_rail.clone();
-                let tool_rail = tool_rail.clone();
-                let search_view = Rc::clone(&search_view);
+                let session = session.clone();
                 move |result| match result {
                     Ok(note) => {
-                        editor.load_note(&note);
-                        let title = editor.current_title();
-                        sync_window_title(&window, Some(&title), false);
-                        *current_note.borrow_mut() = Some(note);
-                        let mut shell_state = shell_state.borrow_mut();
+                        session.editor.load_note(&note);
+                        let title = session.editor.current_title();
+                        sync_window_title(&session.window, Some(&title), false);
+                        *session.current_note.borrow_mut() = Some(note);
+                        let mut shell_state = session.shell_ui.shell_state.borrow_mut();
                         shell_state.set_note_selected(true);
                         if should_route_loaded_note_to_notes(origin, shell_state.tool_mode()) {
                             shell_state.select_tool(ToolMode::Notes);
                             apply_shell_state(
                                 &shell_state,
-                                &tool_rail,
-                                context_panel.as_ref(),
-                                &content_stack,
-                                &inspector_rail,
-                                search_view.as_ref(),
+                                &session.shell_ui.tool_rail,
+                                session.shell_ui.context_panel.as_ref(),
+                                &session.shell_ui.content_stack,
+                                &session.shell_ui.inspector_rail,
+                                session.shell_ui.search_view.as_ref(),
                             );
                         }
                     }
                     Err(error) => {
-                        window.set_title(Some("Failed to load note — Knot"));
+                        session.window.set_title(Some("Failed to load note — Knot"));
                         log::error!("Failed to load note {}: {}", log_path, error);
                     }
                 }
@@ -410,7 +405,7 @@ struct NoteSwitchPromptHandles {
     window: libadwaita::ApplicationWindow,
     editor: Rc<NoteEditor>,
     prompt_open: Rc<Cell<bool>>,
-    dispatch_note_load: Rc<dyn Fn(NoteLoadOrigin, &str)>,
+    dispatch_note_load: NoteLoadDispatcher,
 }
 
 fn present_dirty_note_switch_prompt(
@@ -517,33 +512,21 @@ fn sync_window_title(
     window.set_title(Some(&title));
 }
 
-fn clear_active_note(
-    window: &libadwaita::ApplicationWindow,
-    editor: &NoteEditor,
-    current_note: &Rc<RefCell<Option<NoteData>>>,
-    note_load_state: &Rc<RefCell<NoteLoadState>>,
-    note_load_generation: &Rc<RefCell<u64>>,
-    shell_state: &Rc<RefCell<ShellState>>,
-    tool_rail: &ToolRail,
-    context_panel: &ContextPanel,
-    content_stack: &gtk::Stack,
-    inspector_rail: &InspectorRail,
-    search_view: &SearchView,
-) {
-    cancel_note_load(note_load_state, note_load_generation);
-    sync_window_title(window, None, false);
-    editor.clear();
-    *current_note.borrow_mut() = None;
+fn clear_active_note(session: &NoteSessionHandles) {
+    cancel_note_load(&session.note_load_state, &session.note_load_generation);
+    sync_window_title(&session.window, None, false);
+    session.editor.clear();
+    *session.current_note.borrow_mut() = None;
 
-    let mut shell_state = shell_state.borrow_mut();
+    let mut shell_state = session.shell_ui.shell_state.borrow_mut();
     shell_state.set_note_selected(false);
     apply_shell_state(
         &shell_state,
-        tool_rail,
-        context_panel,
-        content_stack,
-        inspector_rail,
-        search_view,
+        &session.shell_ui.tool_rail,
+        session.shell_ui.context_panel.as_ref(),
+        &session.shell_ui.content_stack,
+        &session.shell_ui.inspector_rail,
+        session.shell_ui.search_view.as_ref(),
     );
 }
 
@@ -583,11 +566,6 @@ fn cancel_note_load(
 }
 
 impl KnotWindow {
-    pub fn new(app: &libadwaita::Application) -> Self {
-        let client = KnotdClient::new();
-        Self::with_client(app, client)
-    }
-
     pub fn with_client(app: &libadwaita::Application, client: KnotdClient) -> Self {
         let client = Rc::new(client);
         let startup_state = determine_startup_state(client.as_ref());
@@ -609,7 +587,7 @@ impl KnotWindow {
 
         // Vault info label in header
         let vault_label = gtk::Label::builder()
-            .label(&startup_header_text(&startup_state))
+            .label(startup_header_text(&startup_state))
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .max_width_chars(40)
             .build();
@@ -681,7 +659,7 @@ impl KnotWindow {
                 .build(),
         );
         let daemon_detail_label = gtk::Label::builder()
-            .label(&startup_detail_text(&startup_state))
+            .label(startup_detail_text(&startup_state))
             .css_classes(vec!["dim-label".to_string()])
             .wrap(true)
             .max_width_chars(48)
@@ -791,18 +769,23 @@ impl KnotWindow {
 
         apply_startup_state(
             &startup_state,
-            &win.startup_state,
-            &win.shell_state.borrow(),
-            &win.vault_label,
-            &win.daemon_detail_label,
-            &win.retry_startup_btn,
-            &win.open_vault_btn,
-            &win.create_vault_btn,
-            &win.tool_rail,
-            win.context_panel.as_ref(),
-            &win.content_stack,
-            &win.inspector_rail,
-            &win.search_view,
+            &StartupRefreshHandles {
+                client: Rc::clone(&win.client),
+                startup_state: Rc::clone(&win.startup_state),
+                vault_label: win.vault_label.clone(),
+                daemon_detail_label: win.daemon_detail_label.clone(),
+                retry_startup_btn: win.retry_startup_btn.clone(),
+                open_vault_btn: win.open_vault_btn.clone(),
+                create_vault_btn: win.create_vault_btn.clone(),
+                shell_ui: ShellUiHandles {
+                    shell_state: Rc::clone(&win.shell_state),
+                    tool_rail: win.tool_rail.clone(),
+                    context_panel: Rc::clone(&win.context_panel),
+                    content_stack: win.content_stack.clone(),
+                    inspector_rail: win.inspector_rail.clone(),
+                    search_view: Rc::clone(&win.search_view),
+                },
+            },
         );
 
         win.install_window_actions();
@@ -912,20 +895,24 @@ impl KnotWindow {
             );
         });
 
-        let dispatch_note_load = build_note_load_dispatcher(
-            Rc::clone(&self.client),
-            Rc::clone(&self.editor),
-            Rc::clone(&self.current_note),
-            Rc::clone(&self.note_load_state),
-            Rc::clone(&self.note_load_generation),
-            Rc::clone(&self.shell_state),
-            self.window.clone(),
-            self.content_stack.clone(),
-            Rc::clone(&self.context_panel),
-            self.inspector_rail.clone(),
-            self.tool_rail.clone(),
-            Rc::clone(&self.search_view),
-        );
+        let shell_ui = ShellUiHandles {
+            shell_state: Rc::clone(&self.shell_state),
+            tool_rail: self.tool_rail.clone(),
+            context_panel: Rc::clone(&self.context_panel),
+            content_stack: self.content_stack.clone(),
+            inspector_rail: self.inspector_rail.clone(),
+            search_view: Rc::clone(&self.search_view),
+        };
+        let note_session = NoteSessionHandles {
+            window: self.window.clone(),
+            editor: Rc::clone(&self.editor),
+            current_note: Rc::clone(&self.current_note),
+            note_load_state: Rc::clone(&self.note_load_state),
+            note_load_generation: Rc::clone(&self.note_load_generation),
+            shell_ui: shell_ui.clone(),
+        };
+        let dispatch_note_load =
+            build_note_load_dispatcher(Rc::clone(&self.client), note_session.clone());
 
         let note_switch_prompt = NoteSwitchPromptHandles {
             window: self.window.clone(),
@@ -973,47 +960,20 @@ impl KnotWindow {
             }
         });
 
-        let window = self.window.clone();
-        let editor = Rc::clone(&self.editor);
-        let current_note = Rc::clone(&self.current_note);
-        let note_load_state = Rc::clone(&self.note_load_state);
-        let note_load_generation = Rc::clone(&self.note_load_generation);
-        let shell_state = Rc::clone(&self.shell_state);
-        let tool_rail = self.tool_rail.clone();
-        let context_panel = Rc::clone(&self.context_panel);
-        let content_stack = self.content_stack.clone();
-        let inspector_rail = self.inspector_rail.clone();
-        let search_view = Rc::clone(&self.search_view);
+        let note_session_for_clear = note_session.clone();
         self.context_panel.connect_selection_cleared(move || {
-            clear_active_note(
-                &window,
-                editor.as_ref(),
-                &current_note,
-                &note_load_state,
-                &note_load_generation,
-                &shell_state,
-                &tool_rail,
-                context_panel.as_ref(),
-                &content_stack,
-                &inspector_rail,
-                search_view.as_ref(),
-            );
+            clear_active_note(&note_session_for_clear);
         });
 
         let startup_refresh = StartupRefreshHandles {
             client: Rc::clone(&self.client),
             startup_state: Rc::clone(&self.startup_state),
-            shell_state: Rc::clone(&self.shell_state),
             vault_label: self.vault_label.clone(),
             daemon_detail_label: self.daemon_detail_label.clone(),
             retry_startup_btn: self.retry_startup_btn.clone(),
             open_vault_btn: self.open_vault_btn.clone(),
             create_vault_btn: self.create_vault_btn.clone(),
-            tool_rail: self.tool_rail.clone(),
-            context_panel: Rc::clone(&self.context_panel),
-            content_stack: self.content_stack.clone(),
-            inspector_rail: self.inspector_rail.clone(),
-            search_view: Rc::clone(&self.search_view),
+            shell_ui,
         };
         let startup_refresh_for_retry = startup_refresh.clone();
         self.retry_startup_btn.connect_clicked(move |_| {
@@ -1049,10 +1009,6 @@ impl KnotWindow {
         self.inspector_rail.connect_close(move || {
             inspector_rail.set_open(false);
         });
-    }
-
-    pub fn widget(&self) -> &libadwaita::ApplicationWindow {
-        &self.window
     }
 
     pub fn present(&self) {
@@ -1263,8 +1219,8 @@ mod tests {
         let first_state = Rc::new(RefCell::new(RequestState::idle()));
         let second_state = Rc::new(RefCell::new(RequestState::idle()));
         let generation = Rc::new(RefCell::new(2_u64));
-        let stale_result: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
-        let fresh_result: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let stale_result: DeferredUiCallback = Rc::new(RefCell::new(None));
+        let fresh_result: DeferredUiCallback = Rc::new(RefCell::new(None));
         let first_note = sample_note();
         let mut second_note = sample_note();
         second_note.title = "Second".to_string();
@@ -1377,7 +1333,7 @@ mod tests {
     fn cleared_note_load_result_is_ignored_and_state_stays_idle() {
         let note_load_state = Rc::new(RefCell::new(RequestState::idle()));
         let note_load_generation = Rc::new(RefCell::new(1_u64));
-        let deferred: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let deferred: DeferredUiCallback = Rc::new(RefCell::new(None));
         let note = sample_note();
 
         begin_note_load_with_dispatch(

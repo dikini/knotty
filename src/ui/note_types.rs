@@ -85,7 +85,7 @@ fn infer_note_type_from_payload(note: &NoteData) -> NoteType {
 
 fn note_type_from_hint(hint: &str) -> Option<NoteType> {
     match hint.trim() {
-        hint if hint.is_empty() => None,
+        "" => None,
         hint if hint.eq_ignore_ascii_case("youtube") || hint.eq_ignore_ascii_case("yt") => {
             Some(NoteType::Youtube)
         }
@@ -106,7 +106,7 @@ fn note_type_from_hint(hint: &str) -> Option<NoteType> {
 
 fn note_type_from_mime_type(mime_type: &str) -> Option<NoteType> {
     match mime_type.trim() {
-        mime_type if mime_type.is_empty() => None,
+        "" => None,
         mime_type if mime_type.eq_ignore_ascii_case("application/pdf") => Some(NoteType::Pdf),
         mime_type if mime_type.to_ascii_lowercase().starts_with("image/") => Some(NoteType::Image),
         _ => None,

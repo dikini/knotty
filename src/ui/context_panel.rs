@@ -6,6 +6,9 @@ use crate::client::KnotdClient;
 use crate::ui::explorer::{ExplorerSelection, ExplorerView, NoteSwitchDecision};
 use crate::ui::tool_rail::ToolMode;
 
+type NoteSelectedCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
+type SelectionClearedCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+
 pub struct ContextPanel {
     widget: gtk::Box,
     header_label: gtk::Label,
@@ -15,9 +18,8 @@ pub struct ContextPanel {
     status_label: gtk::Label,
     rename_btn: gtk::Button,
     delete_btn: gtk::Button,
-    on_note_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
-    on_selection_cleared: Rc<RefCell<Option<Box<dyn Fn()>>>>,
-    on_mode_changed: Rc<RefCell<Option<Box<dyn Fn(ToolMode)>>>>,
+    on_note_selected: NoteSelectedCallback,
+    on_selection_cleared: SelectionClearedCallback,
 }
 
 fn root_window(widget: &gtk::Widget) -> Option<gtk::Window> {
@@ -302,10 +304,8 @@ impl ContextPanel {
         widget.append(&header_label);
         widget.append(&stack);
 
-        let on_note_selected: Rc<RefCell<Option<Box<dyn Fn(&str)>>>> = Rc::new(RefCell::new(None));
-        let on_selection_cleared: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
-        let on_mode_changed: Rc<RefCell<Option<Box<dyn Fn(ToolMode)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_note_selected: NoteSelectedCallback = Rc::new(RefCell::new(None));
+        let on_selection_cleared: SelectionClearedCallback = Rc::new(RefCell::new(None));
 
         let on_note_selected_clone = Rc::clone(&on_note_selected);
         explorer.connect_note_selected(move |path| {
@@ -345,7 +345,6 @@ impl ContextPanel {
             delete_btn,
             on_note_selected,
             on_selection_cleared,
-            on_mode_changed,
         };
 
         panel.wire_note_actions(new_note_btn, new_folder_btn);
@@ -491,14 +490,6 @@ impl ContextPanel {
         if matches!(mode, ToolMode::Notes) {
             self.explorer.refresh();
         }
-
-        if let Some(ref cb) = *self.on_mode_changed.borrow() {
-            cb(mode);
-        }
-    }
-
-    pub fn refresh(&self) {
-        self.explorer.refresh();
     }
 
     pub fn connect_note_selected<F>(&self, f: F)
@@ -520,13 +511,6 @@ impl ContextPanel {
         F: Fn(&str) -> NoteSwitchDecision + 'static,
     {
         self.explorer.connect_note_switch_guard(f);
-    }
-
-    pub fn connect_mode_changed<F>(&self, f: F)
-    where
-        F: Fn(ToolMode) + 'static,
-    {
-        *self.on_mode_changed.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn widget(&self) -> &gtk::Box {
