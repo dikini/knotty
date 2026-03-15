@@ -30,6 +30,9 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 - Restore explicit regression coverage for note-load cancellation after rebasing the explorer review fixes.
 - Add a dedicated GTK deprecations modernization spec, design note, and implementation plan so deprecated GTK/libadwaita API migration can be prioritized as an explicit slice.
+- Add a dedicated Rust clippy gate helper and include `cargo clippy` in the local git gate checks, with warnings treated as temporary debt until the repo reaches a clean clippy baseline.
+- Add a dedicated GTK quality-hardening spec, design note, and implementation plan for clippy cleanup, dead-code reduction, and test tightening after the main parity slices.
+- Harden GTK startup and note loading so the app keeps its main window alive and tolerates partial note payloads from knotd instead of failing note display.
 
 ### Changed
 

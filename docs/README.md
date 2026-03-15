@@ -21,6 +21,7 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 7. `COMP-GTK-SETTINGS-007` - settings, plugins, maintenance
 8. `COMP-GTK-AUTOMATION-008` - UI automation and parity harnesses
 9. `COMP-GTK-DEPRECATIONS-009` - deprecated GTK/libadwaita API modernization
+10. `COMP-GTK-QUALITY-010` - code quality and test hardening
 
 ## Working Rules
 

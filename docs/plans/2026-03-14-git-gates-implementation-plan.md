@@ -39,6 +39,7 @@
 | GGG-002A | GGG-002 | Add `check-rust-format.sh` | `scripts/check-rust-format.sh` | `.githooks/*` |
 | GGG-002B | GGG-002 | Add `check-rust-tests.sh` with nextest fallback | `scripts/check-rust-tests.sh` | docs files |
 | GGG-002C | GGG-002 | Add build verification inside helper or gate | `scripts/check-pre-commit-gate.sh` or helper | source files |
+| GGG-002D | GGG-002 | Add `check-rust-clippy.sh` and wire it into the local gate | `scripts/check-rust-clippy.sh`, `scripts/check-pre-commit-gate.sh` | docs files |
 | GGG-003A | GGG-003 | Add property harness detector | `scripts/check-property-tests.sh` | Rust files |
 | GGG-003B | GGG-003 | Add fuzz harness detector | `scripts/check-fuzz.sh` | Rust files |
 | GGG-003C | GGG-003 | Make optional checks skip cleanly when absent | `scripts/check-property-tests.sh`, `scripts/check-fuzz.sh` | docs files |
@@ -109,6 +110,7 @@ Review the path patterns against the approved design only:
 
 **Files:**
 - Create: `/home/dikini/Projects/knot-gtk/scripts/check-rust-format.sh`
+- Create: `/home/dikini/Projects/knot-gtk/scripts/check-rust-clippy.sh`
 - Create: `/home/dikini/Projects/knot-gtk/scripts/check-rust-tests.sh`
 
 **Step 1: Write the failing test or dry-run expectation**
@@ -116,6 +118,7 @@ Review the path patterns against the approved design only:
 Document expected commands and exit behavior:
 
 - `check-rust-format.sh` runs `cargo fmt --check`
+- `check-rust-clippy.sh` runs `cargo clippy --workspace --all-targets --all-features`
 - `check-rust-tests.sh` prefers `cargo nextest run` and falls back to `cargo test`
 
 **Step 2: Run each script before implementation**
@@ -133,6 +136,17 @@ ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 echo "rust-format: running cargo fmt --check"
 cargo fmt --check
+```
+
+`check-rust-clippy.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+echo "check-rust-clippy: running cargo clippy --workspace --all-targets --all-features"
+cargo clippy --workspace --all-targets --all-features
 ```
 
 `check-rust-tests.sh` should support:
@@ -210,10 +224,11 @@ Pre-commit:
 1. docs evidence
 2. rust format
 3. cargo check
-4. rust tests
-5. property checks
-6. fuzz checks
-7. marker write
+4. cargo clippy
+5. rust tests
+6. property checks
+7. fuzz checks
+8. marker write
 
 Full gate:
 
@@ -358,6 +373,7 @@ bash scripts/check-full-gate.sh
 
 ```bash
 cargo check
+cargo clippy --workspace --all-targets --all-features
 cargo test
 ```
 

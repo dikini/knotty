@@ -293,8 +293,6 @@ impl NoteEditor {
             .group(&meta_btn)
             .build();
 
-        source_btn.set_group(Some(&meta_btn));
-
         mode_buttons.append(&meta_btn);
         mode_buttons.append(&source_btn);
         mode_buttons.append(&edit_btn);

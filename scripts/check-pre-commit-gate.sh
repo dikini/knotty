@@ -41,6 +41,7 @@ bash scripts/check-changelog-staged.sh
 bash scripts/check-rust-format.sh
 echo "pre-commit-gate: running cargo check"
 cargo check
+bash scripts/check-rust-clippy.sh
 bash scripts/check-rust-tests.sh --workspace
 bash scripts/check-property-tests.sh
 bash scripts/check-fuzz.sh --smoke

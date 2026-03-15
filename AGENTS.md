@@ -43,6 +43,7 @@ When you identify non-blocking future work during implementation or review, add 
   - `CHANGELOG.md` structure policy
   - Rust formatting
   - `cargo check`
+  - `cargo clippy`
   - Rust tests
   - property-test detection
   - fuzz checks when a runnable harness exists
