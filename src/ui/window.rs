@@ -7,6 +7,7 @@ use crate::client::{KnotdClient, NoteData};
 use crate::ui::async_bridge;
 use crate::ui::context_panel::ContextPanel;
 use crate::ui::editor::NoteEditor;
+use crate::ui::explorer::NoteSwitchDecision;
 use crate::ui::inspector_rail::InspectorRail;
 use crate::ui::request_state::RequestState;
 use crate::ui::search_view::SearchView;
@@ -426,6 +427,44 @@ fn focus_search_shell(
     );
 }
 
+fn clear_active_note(
+    window: &libadwaita::ApplicationWindow,
+    editor: &NoteEditor,
+    current_note: &Rc<RefCell<Option<NoteData>>>,
+    note_load_state: &Rc<RefCell<NoteLoadState>>,
+    note_load_generation: &Rc<RefCell<u64>>,
+    shell_state: &Rc<RefCell<ShellState>>,
+    tool_rail: &ToolRail,
+    context_panel: &ContextPanel,
+    content_stack: &gtk::Stack,
+    inspector_rail: &InspectorRail,
+    search_view: &SearchView,
+) {
+    cancel_note_load(note_load_state, note_load_generation);
+    window.set_title(Some("Knot"));
+    editor.clear();
+    *current_note.borrow_mut() = None;
+
+    let mut shell_state = shell_state.borrow_mut();
+    shell_state.set_note_selected(false);
+    apply_shell_state(
+        &shell_state,
+        tool_rail,
+        context_panel,
+        content_stack,
+        inspector_rail,
+        search_view,
+    );
+}
+
+fn cancel_note_load(
+    note_load_state: &Rc<RefCell<NoteLoadState>>,
+    note_load_generation: &Rc<RefCell<u64>>,
+) {
+    *note_load_generation.borrow_mut() += 1;
+    *note_load_state.borrow_mut() = RequestState::idle();
+}
+
 impl KnotWindow {
     pub fn new(app: &libadwaita::Application) -> Self {
         let client = KnotdClient::new();
@@ -739,6 +778,14 @@ impl KnotWindow {
         );
         self.context_panel
             .connect_note_selected(move |path| context_note_selected(path));
+        let editor = Rc::clone(&self.editor);
+        self.context_panel.connect_note_switch_guard(move |_| {
+            if editor.is_modified() {
+                NoteSwitchDecision::Deny
+            } else {
+                NoteSwitchDecision::Allow
+            }
+        });
 
         let search_note_selected = build_note_selection_handler(
             NoteLoadOrigin::SearchSelection,
@@ -757,6 +804,33 @@ impl KnotWindow {
         );
         self.search_view
             .connect_result_selected(move |path| search_note_selected(path));
+
+        let window = self.window.clone();
+        let editor = Rc::clone(&self.editor);
+        let current_note = Rc::clone(&self.current_note);
+        let note_load_state = Rc::clone(&self.note_load_state);
+        let note_load_generation = Rc::clone(&self.note_load_generation);
+        let shell_state = Rc::clone(&self.shell_state);
+        let tool_rail = self.tool_rail.clone();
+        let context_panel = Rc::clone(&self.context_panel);
+        let content_stack = self.content_stack.clone();
+        let inspector_rail = self.inspector_rail.clone();
+        let search_view = Rc::clone(&self.search_view);
+        self.context_panel.connect_selection_cleared(move || {
+            clear_active_note(
+                &window,
+                editor.as_ref(),
+                &current_note,
+                &note_load_state,
+                &note_load_generation,
+                &shell_state,
+                &tool_rail,
+                context_panel.as_ref(),
+                &content_stack,
+                &inspector_rail,
+                search_view.as_ref(),
+            );
+        });
 
         let startup_refresh = StartupRefreshHandles {
             client: Rc::clone(&self.client),
@@ -829,6 +903,13 @@ mod tests {
     use crate::ui::request_state::RequestState;
     use std::cell::Cell;
 
+    const TEST_SOCKET_PATH: &str = "/tmp/knot/knotd.sock";
+    const TEST_MISSING_SOCKET_PATH: &str = "/tmp/knot/missing-knotd.sock";
+
+    fn test_client() -> KnotdClient {
+        KnotdClient::with_socket_path(TEST_SOCKET_PATH)
+    }
+
     fn sample_note() -> NoteData {
         NoteData {
             id: "note-1".to_string(),
@@ -852,7 +933,8 @@ mod tests {
 
     #[test]
     fn startup_state_reports_daemon_unavailable_when_client_cannot_connect() {
-        let state = determine_startup_state(&KnotdClient::with_socket_path("/tmp/missing.sock"));
+        let state =
+            determine_startup_state(&KnotdClient::with_socket_path(TEST_MISSING_SOCKET_PATH));
 
         assert!(matches!(state, StartupState::DaemonUnavailable { .. }));
         assert_eq!(startup_content_child_name(&state), "daemon-unavailable");
@@ -965,7 +1047,7 @@ mod tests {
         let note = sample_note();
 
         begin_note_load_with_dispatch(
-            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            test_client(),
             "notes/example.md".to_string(),
             Rc::clone(&state),
             1,
@@ -991,7 +1073,7 @@ mod tests {
         let generation = Rc::new(RefCell::new(1_u64));
 
         begin_note_load_with_dispatch(
-            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            test_client(),
             "notes/missing.md".to_string(),
             Rc::clone(&state),
             1,
@@ -1020,7 +1102,7 @@ mod tests {
         second_note.title = "Second".to_string();
 
         begin_note_load_with_dispatch(
-            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            test_client(),
             "notes/first.md".to_string(),
             Rc::clone(&first_state),
             1,
@@ -1036,7 +1118,7 @@ mod tests {
         );
 
         begin_note_load_with_dispatch(
-            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            test_client(),
             "notes/second.md".to_string(),
             Rc::clone(&second_state),
             2,
@@ -1089,6 +1171,18 @@ mod tests {
     }
 
     #[test]
+    fn context_selection_does_not_reuse_search_only_routing() {
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::ContextSelection,
+            ToolMode::Search
+        ));
+        assert!(should_route_loaded_note_to_notes(
+            NoteLoadOrigin::SearchSelection,
+            ToolMode::Search
+        ));
+    }
+
+    #[test]
     fn focus_search_shell_routes_to_search_surface_and_hides_inspector() {
         let mut shell_state = ShellState::default();
 
@@ -1098,5 +1192,49 @@ mod tests {
         assert_eq!(shell_state.tool_mode(), ToolMode::Search);
         assert_eq!(content_child_name_for_shell(&shell_state), "search");
         assert_eq!(shell_state.inspector_mode(), InspectorMode::Hidden);
+    }
+
+    #[test]
+    fn cancel_note_load_resets_state_to_idle_and_bumps_generation() {
+        let note_load_state = Rc::new(RefCell::new(RequestState::loading()));
+        let note_load_generation = Rc::new(RefCell::new(5_u64));
+
+        cancel_note_load(&note_load_state, &note_load_generation);
+
+        assert_eq!(*note_load_state.borrow(), RequestState::Idle);
+        assert_eq!(*note_load_generation.borrow(), 6);
+    }
+
+    #[test]
+    fn cleared_note_load_result_is_ignored_and_state_stays_idle() {
+        let note_load_state = Rc::new(RefCell::new(RequestState::idle()));
+        let note_load_generation = Rc::new(RefCell::new(1_u64));
+        let deferred: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let note = sample_note();
+
+        begin_note_load_with_dispatch(
+            test_client(),
+            "notes/example.md".to_string(),
+            Rc::clone(&note_load_state),
+            1,
+            Rc::clone(&note_load_generation),
+            {
+                let deferred = Rc::clone(&deferred);
+                let note = note.clone();
+                move |_work, ui| {
+                    *deferred.borrow_mut() = Some(Box::new(move || ui(Ok(note))));
+                }
+            },
+            |_| panic!("cleared load should not reach the UI callback"),
+        );
+
+        cancel_note_load(&note_load_state, &note_load_generation);
+
+        deferred
+            .borrow_mut()
+            .take()
+            .expect("deferred result should be captured")();
+
+        assert_eq!(*note_load_state.borrow(), RequestState::Idle);
     }
 }

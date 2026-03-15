@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod cli;
 mod client;
+mod runtime_contract;
 mod ui;
 
 use cli::CliArgs;

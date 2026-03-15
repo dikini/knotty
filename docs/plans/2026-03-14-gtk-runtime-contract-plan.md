@@ -30,7 +30,7 @@
 - `GTR-001` was already satisfied in the branch baseline and was verified rather than reimplemented.
 - `GTR-002` through `GTR-006` were implemented, including async note loading, stale-result protection, and bridge disconnect handling.
 - Review follow-up: async note-load completion now preserves a newer Graph or Settings surface instead of forcing the editor route after late results.
-- Contract correction: the daemon-backed default socket path is `.../knot/knotd.sock`, matching the running `knotd` service and other clients.
+- Contract correction: the daemon-backed default socket path is `XDG_RUNTIME_DIR/knot/knotd.sock`, matching the running `knotd` service and other clients without guessing a machine-specific `/run/user/<uid>` fallback.
 - Final verification: `cargo fmt --check`, `cargo test`, and `cargo check` passed on the completed slice.
 
 ## Rust Guidance For This Slice
@@ -138,7 +138,7 @@ Parallel work is allowed after `GTR-001` if the developers do not edit the same 
 | Small ID | Parent | Action | Primary Files | Do Not Touch |
 |---|---|---|---|---|
 | GTR-001A | GTR-001 | Add failing XDG runtime-dir test | `src/cli.rs` | `src/ui/*` |
-| GTR-001B | GTR-001 | Add failing fallback-path test | `src/cli.rs` | `src/ui/*` |
+| GTR-001B | GTR-001 | Add failing missing-runtime test | `src/cli.rs` | `src/ui/*` |
 | GTR-001C | GTR-001 | Fix path builder | `src/cli.rs` | `src/client/*` |
 | GTR-002A | GTR-002 | Add failing `available_modes` decode test | `src/client/mod.rs` | `src/ui/*` |
 | GTR-002B | GTR-002 | Add failing `media` decode test | `src/client/mod.rs` | `src/ui/*` |
@@ -160,9 +160,9 @@ Parallel work is allowed after `GTR-001` if the developers do not edit the same 
 - Modify: `/home/dikini/Projects/knot-gtk/src/cli.rs`
 
 **Steps**
-1. Add or tighten tests for `XDG_RUNTIME_DIR` and fallback behavior.
+1. Add or tighten tests for `XDG_RUNTIME_DIR` and missing-runtime behavior.
 2. Run `cargo test cli::tests::test_default_socket_path -- --exact` and confirm red.
-3. Fix `default_socket_path()` to match the documented `.../knot/knotd.sock` contract.
+3. Fix `default_socket_path()` to match the documented `XDG_RUNTIME_DIR/knot/knotd.sock` contract and avoid a user-specific fallback path.
 4. Re-run the same test until green.
 5. Review for duplicated path-building logic and keep only the minimal helper extraction needed.
 

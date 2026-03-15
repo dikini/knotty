@@ -22,6 +22,10 @@
 - Prefer modern GTK list/tree patterns if a contained refactor is practical.
 - Keep drag-and-drop out unless the contract and tests are already straightforward.
 - Make guard hooks explicit even if they are initially simple.
+- Review-complete explorer delivery should avoid replaying expansion persistence during tree refresh, route note activation through one shared path, and keep deletion fallbacks deterministic by reselecting the parent folder when possible.
+- Rename flows may accept a full target path so the slice covers note moves without adding separate drag-and-drop or move-only UI.
+- Review follow-ups should reset note-activation suppression after empty selection, clear active-note state on folder removal, and return cleared note loads to idle state.
+- Keep a direct regression test around note-load cancellation so rebases do not silently drop that coverage.
 
 ## Rust Guidance For This Slice
 

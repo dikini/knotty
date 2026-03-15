@@ -2,9 +2,6 @@
 
 use std::path::PathBuf;
 
-const DEFAULT_SOCKET_DIR: &str = "/run/user/1000/knot";
-const DEFAULT_SOCKET_NAME: &str = "knotd.sock";
-
 #[derive(Debug, Clone)]
 pub struct CliArgs {
     pub socket_path: PathBuf,
@@ -57,7 +54,14 @@ impl CliArgs {
         // Determine socket path
         let socket_path = socket_path
             .or_else(|| std::env::var("KNOTD_SOCKET_PATH").ok().map(PathBuf::from))
-            .unwrap_or_else(Self::default_socket_path);
+            .or_else(Self::default_socket_path)
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Error: {}",
+                    crate::runtime_contract::missing_socket_path_message()
+                );
+                std::process::exit(1);
+            });
 
         Self {
             socket_path,
@@ -65,17 +69,8 @@ impl CliArgs {
         }
     }
 
-    fn default_socket_path() -> PathBuf {
-        // Try /run/user/UID/knot first (XDG_RUNTIME_DIR)
-        if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-            let path = PathBuf::from(runtime_dir)
-                .join("knot")
-                .join(DEFAULT_SOCKET_NAME);
-            return path;
-        }
-
-        // Fallback to /run/user/1000/knot (common default)
-        PathBuf::from(DEFAULT_SOCKET_DIR).join(DEFAULT_SOCKET_NAME)
+    fn default_socket_path() -> Option<PathBuf> {
+        crate::runtime_contract::default_socket_path()
     }
 
     fn print_help() {
@@ -85,14 +80,20 @@ impl CliArgs {
         println!();
         println!("Options:");
         println!("  -s, --socket <PATH>    Path to knotd Unix socket");
-        println!("                         [default: $XDG_RUNTIME_DIR/knot/knotd.sock or /run/user/1000/knot/knotd.sock]");
+        println!(
+            "                         [default: {}]",
+            crate::runtime_contract::default_socket_help()
+        );
         println!("  -v, --vault <PATH>     Path to vault (for auto-starting knotd)");
         println!("  -h, --help             Print this help message");
         println!("  -V, --version          Print version information");
         println!();
         println!("Environment Variables:");
         println!("  KNOTD_SOCKET_PATH      Override default socket path");
-        println!("  XDG_RUNTIME_DIR        Used to construct default socket path");
+        println!(
+            "  XDG_RUNTIME_DIR        Used to construct the default socket path ({})",
+            crate::runtime_contract::default_socket_help()
+        );
     }
 }
 
@@ -107,13 +108,13 @@ mod tests {
 
         // Test with XDG_RUNTIME_DIR set
         std::env::set_var("XDG_RUNTIME_DIR", "/tmp/test-runtime");
-        let path = CliArgs::default_socket_path();
+        let path = CliArgs::default_socket_path().expect("XDG runtime path should resolve");
         assert_eq!(path, PathBuf::from("/tmp/test-runtime/knot/knotd.sock"));
 
         // Test without XDG_RUNTIME_DIR
         std::env::remove_var("XDG_RUNTIME_DIR");
         let path = CliArgs::default_socket_path();
-        assert_eq!(path, PathBuf::from("/run/user/1000/knot/knotd.sock"));
+        assert_eq!(path, None);
 
         // Restore original
         match original {
