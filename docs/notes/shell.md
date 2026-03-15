@@ -9,4 +9,4 @@ Future opportunities for the GTK shell and search subsystem that are intentional
 
 ## Shell
 
-- Keep watching for opportunities to reduce callback capture size in `src/ui/window.rs` if more shell actions are added. The current ownership is acceptable, but the note-load and startup action closures remain a natural pressure point for future extraction.
+- Keep watching for opportunities to reduce callback capture size in `src/ui/window.rs` if more shell actions are added. The latest cleanup centralized startup refresh handles, but note-load routing still carries a fairly wide UI context through the shared selection handler.

@@ -40,7 +40,7 @@ pub struct KnotWindow {
     window: libadwaita::ApplicationWindow,
     client: Rc<KnotdClient>,
     tool_rail: ToolRail,
-    context_panel: Rc<RefCell<ContextPanel>>,
+    context_panel: Rc<ContextPanel>,
     inspector_rail: InspectorRail,
     startup_state: Rc<RefCell<StartupState>>,
     vault_label: gtk::Label,
@@ -55,6 +55,23 @@ pub struct KnotWindow {
     note_load_state: Rc<RefCell<NoteLoadState>>,
     note_load_generation: Rc<RefCell<u64>>,
     shell_state: Rc<RefCell<ShellState>>,
+}
+
+#[derive(Clone)]
+struct StartupRefreshHandles {
+    client: Rc<KnotdClient>,
+    startup_state: Rc<RefCell<StartupState>>,
+    shell_state: Rc<RefCell<ShellState>>,
+    vault_label: gtk::Label,
+    daemon_detail_label: gtk::Label,
+    retry_startup_btn: gtk::Button,
+    open_vault_btn: gtk::Button,
+    create_vault_btn: gtk::Button,
+    tool_rail: ToolRail,
+    context_panel: Rc<ContextPanel>,
+    content_stack: gtk::Stack,
+    inspector_rail: InspectorRail,
+    search_view: Rc<SearchView>,
 }
 
 fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadResult) {
@@ -112,10 +129,6 @@ fn startup_content_child_name(state: &StartupState) -> &'static str {
 
 fn startup_shell_chrome_visible(state: &StartupState) -> bool {
     matches!(state, StartupState::VaultOpen { .. })
-}
-
-fn startup_allows_shell_navigation(state: &StartupState) -> bool {
-    startup_shell_chrome_visible(state)
 }
 
 fn startup_action_specs(state: &StartupState) -> &'static [StartupAction] {
@@ -228,36 +241,22 @@ fn apply_startup_state(
     }
 }
 
-fn refresh_startup_shell(
-    client: &KnotdClient,
-    startup_state_cell: &RefCell<StartupState>,
-    shell_state: &ShellState,
-    vault_label: &gtk::Label,
-    daemon_detail_label: &gtk::Label,
-    retry_startup_btn: &gtk::Button,
-    open_vault_btn: &gtk::Button,
-    create_vault_btn: &gtk::Button,
-    tool_rail: &ToolRail,
-    context_panel: &ContextPanel,
-    content_stack: &gtk::Stack,
-    inspector_rail: &InspectorRail,
-    search_view: &SearchView,
-) {
-    let startup_state = determine_startup_state(client);
+fn refresh_startup_shell(handles: &StartupRefreshHandles) {
+    let startup_state = determine_startup_state(handles.client.as_ref());
     apply_startup_state(
         &startup_state,
-        startup_state_cell,
-        shell_state,
-        vault_label,
-        daemon_detail_label,
-        retry_startup_btn,
-        open_vault_btn,
-        create_vault_btn,
-        tool_rail,
-        context_panel,
-        content_stack,
-        inspector_rail,
-        search_view,
+        handles.startup_state.as_ref(),
+        &handles.shell_state.borrow(),
+        &handles.vault_label,
+        &handles.daemon_detail_label,
+        &handles.retry_startup_btn,
+        &handles.open_vault_btn,
+        &handles.create_vault_btn,
+        &handles.tool_rail,
+        handles.context_panel.as_ref(),
+        &handles.content_stack,
+        &handles.inspector_rail,
+        handles.search_view.as_ref(),
     );
 }
 
@@ -332,7 +331,7 @@ fn build_note_selection_handler(
     shell_state: Rc<RefCell<ShellState>>,
     window: libadwaita::ApplicationWindow,
     content_stack: gtk::Stack,
-    context_panel: Rc<RefCell<ContextPanel>>,
+    context_panel: Rc<ContextPanel>,
     inspector_rail: InspectorRail,
     tool_rail: ToolRail,
     search_view: Rc<SearchView>,
@@ -381,7 +380,7 @@ fn build_note_selection_handler(
                             apply_shell_state(
                                 &shell_state,
                                 &tool_rail,
-                                &context_panel.borrow(),
+                                context_panel.as_ref(),
                                 &content_stack,
                                 &inspector_rail,
                                 search_view.as_ref(),
@@ -478,8 +477,8 @@ impl KnotWindow {
         main_box.append(tool_rail.widget());
 
         // ContextPanel (left-center)
-        let context_panel = Rc::new(RefCell::new(ContextPanel::new(Rc::clone(&client))));
-        main_box.append(context_panel.borrow().widget());
+        let context_panel = Rc::new(ContextPanel::new(Rc::clone(&client)));
+        main_box.append(context_panel.widget());
 
         // Content area (center)
         let content_stack = gtk::Stack::builder().vexpand(true).hexpand(true).build();
@@ -644,7 +643,7 @@ impl KnotWindow {
             &win.open_vault_btn,
             &win.create_vault_btn,
             &win.tool_rail,
-            &win.context_panel.borrow(),
+            win.context_panel.as_ref(),
             &win.content_stack,
             &win.inspector_rail,
             &win.search_view,
@@ -666,14 +665,14 @@ impl KnotWindow {
         let inspector_rail = self.inspector_rail.clone();
         let search_view = Rc::clone(&self.search_view);
         action.connect_activate(move |_action, _param| {
-            if !startup_allows_shell_navigation(&startup_state.borrow()) {
+            if !startup_shell_chrome_visible(&startup_state.borrow()) {
                 return;
             }
             let mut shell_state = shell_state.borrow_mut();
             focus_search_shell(
                 &mut shell_state,
                 &tool_rail,
-                &context_panel.borrow(),
+                context_panel.as_ref(),
                 &content_stack,
                 &inspector_rail,
                 search_view.as_ref(),
@@ -696,7 +695,7 @@ impl KnotWindow {
             apply_shell_state(
                 &shell_state,
                 &tool_rail,
-                &context_panel_ref.borrow(),
+                context_panel_ref.as_ref(),
                 &content_stack,
                 &inspector_rail,
                 search_view.as_ref(),
@@ -716,7 +715,7 @@ impl KnotWindow {
             apply_shell_state(
                 &shell_state,
                 &tool_rail,
-                &context_panel_ref.borrow(),
+                context_panel_ref.as_ref(),
                 &content_stack,
                 &inspector_rail,
                 search_view.as_ref(),
@@ -739,7 +738,6 @@ impl KnotWindow {
             Rc::clone(&self.search_view),
         );
         self.context_panel
-            .borrow()
             .connect_note_selected(move |path| context_note_selected(path));
 
         let search_note_selected = build_note_selection_handler(
@@ -760,134 +758,47 @@ impl KnotWindow {
         self.search_view
             .connect_result_selected(move |path| search_note_selected(path));
 
-        let retry_startup_btn = self.retry_startup_btn.clone();
-        let open_vault_btn = self.open_vault_btn.clone();
-        let create_vault_btn = self.create_vault_btn.clone();
-        let client = Rc::clone(&self.client);
-        let startup_state = Rc::clone(&self.startup_state);
-        let shell_state = Rc::clone(&self.shell_state);
-        let vault_label = self.vault_label.clone();
-        let daemon_detail_label = self.daemon_detail_label.clone();
-        let tool_rail = self.tool_rail.clone();
-        let context_panel_ref = Rc::clone(&self.context_panel);
-        let content_stack = self.content_stack.clone();
-        let inspector_rail = self.inspector_rail.clone();
-        let search_view = Rc::clone(&self.search_view);
+        let startup_refresh = StartupRefreshHandles {
+            client: Rc::clone(&self.client),
+            startup_state: Rc::clone(&self.startup_state),
+            shell_state: Rc::clone(&self.shell_state),
+            vault_label: self.vault_label.clone(),
+            daemon_detail_label: self.daemon_detail_label.clone(),
+            retry_startup_btn: self.retry_startup_btn.clone(),
+            open_vault_btn: self.open_vault_btn.clone(),
+            create_vault_btn: self.create_vault_btn.clone(),
+            tool_rail: self.tool_rail.clone(),
+            context_panel: Rc::clone(&self.context_panel),
+            content_stack: self.content_stack.clone(),
+            inspector_rail: self.inspector_rail.clone(),
+            search_view: Rc::clone(&self.search_view),
+        };
+        let startup_refresh_for_retry = startup_refresh.clone();
         self.retry_startup_btn.connect_clicked(move |_| {
-            refresh_startup_shell(
-                client.as_ref(),
-                startup_state.as_ref(),
-                &shell_state.borrow(),
-                &vault_label,
-                &daemon_detail_label,
-                &retry_startup_btn,
-                &open_vault_btn,
-                &create_vault_btn,
-                &tool_rail,
-                &context_panel_ref.borrow(),
-                &content_stack,
-                &inspector_rail,
-                search_view.as_ref(),
-            );
+            refresh_startup_shell(&startup_refresh_for_retry);
         });
 
-        let retry_startup_btn = self.retry_startup_btn.clone();
-        let open_vault_btn = self.open_vault_btn.clone();
-        let create_vault_btn = self.create_vault_btn.clone();
-        let client = Rc::clone(&self.client);
-        let startup_state = Rc::clone(&self.startup_state);
-        let shell_state = Rc::clone(&self.shell_state);
-        let vault_label = self.vault_label.clone();
-        let daemon_detail_label = self.daemon_detail_label.clone();
-        let tool_rail = self.tool_rail.clone();
-        let context_panel_ref = Rc::clone(&self.context_panel);
-        let content_stack = self.content_stack.clone();
-        let inspector_rail = self.inspector_rail.clone();
-        let search_view = Rc::clone(&self.search_view);
         let window = self.window.clone();
+        let startup_refresh_for_open = startup_refresh.clone();
         self.open_vault_btn.connect_clicked(move |_| {
-            let client = Rc::clone(&client);
-            let startup_state = Rc::clone(&startup_state);
-            let shell_state = Rc::clone(&shell_state);
-            let vault_label = vault_label.clone();
-            let daemon_detail_label = daemon_detail_label.clone();
-            let tool_rail = tool_rail.clone();
-            let context_panel_ref = Rc::clone(&context_panel_ref);
-            let content_stack = content_stack.clone();
-            let inspector_rail = inspector_rail.clone();
-            let search_view = Rc::clone(&search_view);
-            let retry_startup_btn = retry_startup_btn.clone();
-            let open_vault_btn = open_vault_btn.clone();
-            let create_vault_btn = create_vault_btn.clone();
+            let startup_refresh = startup_refresh_for_open.clone();
             choose_vault_directory(&window, "Open vault", "Open", move |path| {
-                if let Err(error) = client.open_vault(&path) {
+                if let Err(error) = startup_refresh.client.open_vault(&path) {
                     log::error!("Failed to open vault {}: {}", path, error);
                 }
-                refresh_startup_shell(
-                    client.as_ref(),
-                    startup_state.as_ref(),
-                    &shell_state.borrow(),
-                    &vault_label,
-                    &daemon_detail_label,
-                    &retry_startup_btn,
-                    &open_vault_btn,
-                    &create_vault_btn,
-                    &tool_rail,
-                    &context_panel_ref.borrow(),
-                    &content_stack,
-                    &inspector_rail,
-                    search_view.as_ref(),
-                );
+                refresh_startup_shell(&startup_refresh);
             });
         });
 
-        let retry_startup_btn = self.retry_startup_btn.clone();
-        let open_vault_btn = self.open_vault_btn.clone();
-        let create_vault_btn = self.create_vault_btn.clone();
-        let client = Rc::clone(&self.client);
-        let startup_state = Rc::clone(&self.startup_state);
-        let shell_state = Rc::clone(&self.shell_state);
-        let vault_label = self.vault_label.clone();
-        let daemon_detail_label = self.daemon_detail_label.clone();
-        let tool_rail = self.tool_rail.clone();
-        let context_panel_ref = Rc::clone(&self.context_panel);
-        let content_stack = self.content_stack.clone();
-        let inspector_rail = self.inspector_rail.clone();
-        let search_view = Rc::clone(&self.search_view);
         let window = self.window.clone();
+        let startup_refresh_for_create = startup_refresh;
         self.create_vault_btn.connect_clicked(move |_| {
-            let client = Rc::clone(&client);
-            let startup_state = Rc::clone(&startup_state);
-            let shell_state = Rc::clone(&shell_state);
-            let vault_label = vault_label.clone();
-            let daemon_detail_label = daemon_detail_label.clone();
-            let tool_rail = tool_rail.clone();
-            let context_panel_ref = Rc::clone(&context_panel_ref);
-            let content_stack = content_stack.clone();
-            let inspector_rail = inspector_rail.clone();
-            let search_view = Rc::clone(&search_view);
-            let retry_startup_btn = retry_startup_btn.clone();
-            let open_vault_btn = open_vault_btn.clone();
-            let create_vault_btn = create_vault_btn.clone();
+            let startup_refresh = startup_refresh_for_create.clone();
             choose_vault_directory(&window, "Create vault", "Create", move |path| {
-                if let Err(error) = client.create_vault(&path) {
+                if let Err(error) = startup_refresh.client.create_vault(&path) {
                     log::error!("Failed to create vault {}: {}", path, error);
                 }
-                refresh_startup_shell(
-                    client.as_ref(),
-                    startup_state.as_ref(),
-                    &shell_state.borrow(),
-                    &vault_label,
-                    &daemon_detail_label,
-                    &retry_startup_btn,
-                    &open_vault_btn,
-                    &create_vault_btn,
-                    &tool_rail,
-                    &context_panel_ref.borrow(),
-                    &content_stack,
-                    &inspector_rail,
-                    search_view.as_ref(),
-                );
+                refresh_startup_shell(&startup_refresh);
             });
         });
 
@@ -1012,13 +923,13 @@ mod tests {
 
     #[test]
     fn startup_navigation_only_unlocked_when_vault_is_open() {
-        assert!(!startup_allows_shell_navigation(
+        assert!(!startup_shell_chrome_visible(
             &StartupState::DaemonUnavailable {
                 message: "offline".to_string()
             }
         ));
-        assert!(!startup_allows_shell_navigation(&StartupState::NoVault));
-        assert!(startup_allows_shell_navigation(&StartupState::VaultOpen {
+        assert!(!startup_shell_chrome_visible(&StartupState::NoVault));
+        assert!(startup_shell_chrome_visible(&StartupState::VaultOpen {
             name: Some("Example".to_string())
         }));
     }

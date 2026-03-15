@@ -30,3 +30,4 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Keep startup-only surfaces from being bypassed by the search shortcut, and avoid sticky search suppression when clearing an already-empty query.
 - Keep the search shortcut cheap by consulting cached startup state, and refresh daemon-unavailable detail text when startup diagnostics change.
 - Keep async note-load completion from forcing Search back to Notes unless the load was explicitly initiated from a search result.
+- Simplify GTK shell callback wiring by removing row-name-coupled search activation, collapsing repeated search reset logic, dropping unnecessary window-level `ContextPanel` interior mutability, and centralizing startup refresh handles.
