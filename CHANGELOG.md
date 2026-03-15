@@ -13,6 +13,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Remove the machine-specific `/run/user/1000` socket fallback and require `XDG_RUNTIME_DIR`, `--socket`, or `KNOTD_SOCKET_PATH` for the GTK daemon connection contract.
 - Keep the primary GTK window alive for the application lifetime instead of dropping the window wrapper immediately after `present()`.
 - Remove the redundant editor mode-button group assignment that could hang startup while activating the default source mode toggle.
+- Drop the graph-view scene borrow before node-selection callbacks so graph clicks do not panic with `RefCell already borrowed` during shell/context updates.
 - Tolerate note payloads whose optional `embed` object omits `kind` or other fields so GTK loads the note instead of failing the entire response decode.
 - Tolerate partial note payloads for headings, backlinks, media, and mode availability so note loads degrade instead of failing hard on missing nested fields.
 
@@ -34,6 +35,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add a dedicated Rust clippy gate helper and include `cargo clippy` in the local git gate checks, with warnings treated as temporary debt until the repo reaches a clean clippy baseline.
 - Add a dedicated GTK quality-hardening spec, design note, and implementation plan for clippy cleanup, dead-code reduction, and test tightening after the main parity slices.
 - Harden GTK startup and note loading so the app keeps its main window alive and tolerates partial note payloads from knotd instead of failing note display.
+- Add the GTK graph slice with a drawing-area graph surface, normalized vault/neighborhood graph payloads, graph context controls, selected-node details, and note activation routed through the shared note loader.
 
 ### Changed
 
@@ -41,6 +43,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
 - Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
 - Tighten the GTK quality slice so it targets clean `cargo check` and `cargo clippy` output, not just a partial warning reduction.
+- Align the graph spec, plan, and reference docs with the live knotd contract, including string-node neighborhood payloads and GTK-side normalization of focused graph scenes.
 
 ### Fixed
 

@@ -273,7 +273,6 @@ impl KnotdClient {
 
     // ===== Graph Operations =====
 
-    #[allow(dead_code)]
     pub fn get_graph_layout(&self, width: f64, height: f64) -> Result<GraphLayout> {
         let value = self.call_tool(
             "get_graph_layout",
@@ -282,13 +281,13 @@ impl KnotdClient {
         serde_json::from_value(value).map_err(ClientError::Json)
     }
 
-    #[allow(dead_code)]
-    pub fn graph_neighbors(&self, path: &str, depth: Option<usize>) -> Result<Value> {
+    pub fn graph_neighbors(&self, path: &str, depth: Option<usize>) -> Result<GraphNeighborhood> {
         let mut args = json!({"path": path});
         if let Some(depth) = depth {
             args["depth"] = json!(depth);
         }
-        self.call_tool("graph_neighbors", args)
+        let value = self.call_tool("graph_neighbors", args)?;
+        serde_json::from_value(value).map_err(ClientError::Json)
     }
 
     // ===== Settings Operations =====
@@ -493,14 +492,13 @@ pub struct ExplorerNoteNode {
 
 // Graph types
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphLayout {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
     pub label: String,
@@ -508,11 +506,18 @@ pub struct GraphNode {
     pub y: f64,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNeighborhood {
+    #[serde(default)]
+    pub nodes: Vec<String>,
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
 }
 
 #[cfg(test)]
@@ -745,6 +750,70 @@ mod tests {
                 path: "notes/other.md".to_string(),
                 title: "Other Note".to_string(),
                 excerpt: Some("References Example".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn graph_layout_deserializes_positioned_nodes() {
+        let layout: GraphLayout = serde_json::from_value(json!({
+            "nodes": [
+                {
+                    "id": "notes/example.md",
+                    "label": "example",
+                    "x": 12.5,
+                    "y": 44.0
+                }
+            ],
+            "edges": [
+                {
+                    "source": "notes/example.md",
+                    "target": "notes/other.md"
+                }
+            ]
+        }))
+        .expect("graph layout should deserialize");
+
+        assert_eq!(
+            layout.nodes,
+            vec![GraphNode {
+                id: "notes/example.md".to_string(),
+                label: "example".to_string(),
+                x: 12.5,
+                y: 44.0,
+            }]
+        );
+        assert_eq!(
+            layout.edges,
+            vec![GraphEdge {
+                source: "notes/example.md".to_string(),
+                target: "notes/other.md".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn graph_neighbors_deserializes_string_nodes() {
+        let neighborhood: GraphNeighborhood = serde_json::from_value(json!({
+            "nodes": ["notes/example.md", "notes/other.md"],
+            "edges": [
+                {
+                    "source": "notes/example.md",
+                    "target": "notes/other.md"
+                }
+            ]
+        }))
+        .expect("graph neighborhood should deserialize");
+
+        assert_eq!(
+            neighborhood.nodes,
+            vec!["notes/example.md".to_string(), "notes/other.md".to_string()]
+        );
+        assert_eq!(
+            neighborhood.edges,
+            vec![GraphEdge {
+                source: "notes/example.md".to_string(),
+                target: "notes/other.md".to_string(),
             }]
         );
     }

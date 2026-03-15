@@ -17,9 +17,10 @@ Provide graph functionality in GTK with the same user-facing capabilities as the
 ### In Scope
 - vault graph and node graph routing
 - graph surface using backend-provided layout
-- graph selection, hover, and note activation
+- graph selection and note activation
 - graph context controls including reset and node-depth control
 - selected-node details, neighbors, and backlinks
+- neighborhood-scope graph normalized from daemon neighborhood payloads
 
 ### Out of Scope
 - pixel-identical rendering with the Tauri SVG implementation
@@ -38,9 +39,11 @@ Provide graph functionality in GTK with the same user-facing capabilities as the
 **FR-3**: Scope control
 - Graph mode must support vault scope and node scope.
 - Node scope depth must be adjustable.
+- Reset must restore vault scope, clear the focused node, and reset depth to `1`.
 
 **FR-4**: Context panel support
 - Graph controls and selected-node details must be available in the context panel or equivalent GTK-native region.
+- Context details may derive neighbors and backlinks from the current graph scene instead of a separate details call.
 
 **FR-5**: Reset and reframe
 - Graph surface must provide reset behavior and consistent framing rules.
@@ -52,6 +55,7 @@ Provide graph functionality in GTK with the same user-facing capabilities as the
 | Treat graph as a separate slice after shell | Limits overlap with editor and explorer work | Graph lands later |
 | Use GTK-native rendering or embedded drawing as needed | Functionality matters more than matching SVG internals | Rendering stack may differ from Tauri |
 | Keep graph context with the shell context panel | Matches existing shell mental model | Requires careful state routing |
+| Normalize neighborhood payloads into one internal scene model | Keeps rendering and context logic shared between vault and node scope | GTK computes fallback positions when neighborhood payloads omit them |
 
 ## Acceptance Criteria
 

@@ -4,6 +4,7 @@ pub mod async_bridge;
 pub mod context_panel;
 pub mod editor;
 pub mod explorer;
+pub mod graph_view;
 pub mod inspector_rail;
 pub mod note_types;
 pub mod request_state;

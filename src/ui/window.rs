@@ -3,11 +3,15 @@ use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use crate::client::{KnotdClient, NoteData};
+use crate::client::{GraphLayout, KnotdClient, NoteData};
 use crate::ui::async_bridge;
-use crate::ui::context_panel::ContextPanel;
+use crate::ui::context_panel::{ContextPanel, GraphPanelEvent, GraphPanelState};
 use crate::ui::editor::NoteEditor;
 use crate::ui::explorer::NoteSwitchDecision;
+use crate::ui::graph_view::{
+    graph_context_details, normalize_neighborhood_layout, normalize_vault_layout, GraphScene,
+    GraphScope, GraphView,
+};
 use crate::ui::inspector_rail::InspectorRail;
 use crate::ui::request_state::RequestState;
 use crate::ui::search_view::SearchView;
@@ -17,13 +21,15 @@ use crate::ui::tool_rail::{ToolMode, ToolRail};
 type NoteLoadState = RequestState<NoteData, String>;
 type NoteLoadResult = Result<NoteData, String>;
 type NoteLoadDispatcher = Rc<dyn Fn(NoteLoadOrigin, &str)>;
+type GraphLoadResult = Result<(GraphScene, Option<GraphLayout>), String>;
 #[cfg(test)]
 type DeferredUiCallback = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NoteLoadOrigin {
-    ContextSelection,
-    SearchSelection,
+    Context,
+    Search,
+    Graph,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +67,7 @@ pub struct KnotWindow {
     create_vault_btn: gtk::Button,
     editor: Rc<NoteEditor>,
     search_view: Rc<SearchView>,
+    graph_view: Rc<GraphView>,
     content_stack: gtk::Stack,
     current_note: Rc<RefCell<Option<NoteData>>>,
     note_load_state: Rc<RefCell<NoteLoadState>>,
@@ -98,6 +105,19 @@ struct NoteSessionHandles {
     note_load_state: Rc<RefCell<NoteLoadState>>,
     note_load_generation: Rc<RefCell<u64>>,
     shell_ui: ShellUiHandles,
+}
+
+#[derive(Clone)]
+struct GraphSessionHandles {
+    client: Rc<KnotdClient>,
+    graph_view: Rc<GraphView>,
+    context_panel: Rc<ContextPanel>,
+    scope: Rc<RefCell<GraphScope>>,
+    depth: Rc<Cell<u32>>,
+    selected_path: Rc<RefCell<Option<String>>>,
+    vault_layout: Rc<RefCell<Option<GraphLayout>>>,
+    current_scene: Rc<RefCell<GraphScene>>,
+    request_generation: Rc<Cell<u64>>,
 }
 
 fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadResult) {
@@ -460,8 +480,8 @@ fn present_dirty_note_switch_prompt(
 
 fn should_route_loaded_note_to_notes(origin: NoteLoadOrigin, tool_mode: ToolMode) -> bool {
     matches!(tool_mode, ToolMode::Notes)
-        || (matches!(origin, NoteLoadOrigin::SearchSelection)
-            && matches!(tool_mode, ToolMode::Search))
+        || matches!(origin, NoteLoadOrigin::Graph)
+        || (matches!(origin, NoteLoadOrigin::Search) && matches!(tool_mode, ToolMode::Search))
 }
 
 fn dirty_note_switch_response(response: &str) -> DirtyNoteSwitchResponse {
@@ -528,6 +548,127 @@ fn clear_active_note(session: &NoteSessionHandles) {
         &session.shell_ui.inspector_rail,
         session.shell_ui.search_view.as_ref(),
     );
+}
+
+fn graph_panel_state(scope: GraphScope, depth: u32, scene: &GraphScene) -> GraphPanelState {
+    GraphPanelState {
+        scope,
+        depth,
+        load_state: scene.load_state.clone(),
+        details: graph_context_details(scene),
+    }
+}
+
+fn sync_graph_ui(session: &GraphSessionHandles, scene: GraphScene) {
+    let scope = *session.scope.borrow();
+    let depth = session.depth.get();
+    session.graph_view.set_scene(scope, scene.clone());
+    session
+        .context_panel
+        .set_graph_state(&graph_panel_state(scope, depth, &scene));
+    *session.current_scene.borrow_mut() = scene;
+}
+
+fn set_graph_selection(session: &GraphSessionHandles, path: Option<String>) {
+    *session.selected_path.borrow_mut() = path.clone();
+    let mut scene = session.current_scene.borrow().clone();
+    scene.selected_path = path;
+    sync_graph_ui(session, scene);
+}
+
+fn request_graph_scene(
+    client: &KnotdClient,
+    scope: GraphScope,
+    selected_path: Option<String>,
+    depth: u32,
+    vault_layout: Option<GraphLayout>,
+) -> GraphLoadResult {
+    match scope {
+        GraphScope::Vault => {
+            let mut scene = normalize_vault_layout(
+                client
+                    .get_graph_layout(1200.0, 800.0)
+                    .map_err(|error| error.to_string())?,
+            );
+            scene.selected_path = selected_path;
+            let layout = GraphLayout {
+                nodes: scene.nodes.clone(),
+                edges: scene.edges.clone(),
+            };
+            Ok((scene, Some(layout)))
+        }
+        GraphScope::Neighborhood => {
+            let Some(path) = selected_path else {
+                return Ok((
+                    GraphScene::error("Select a node to focus the graph", None),
+                    None,
+                ));
+            };
+            let neighborhood = client
+                .graph_neighbors(&path, Some(depth as usize))
+                .map_err(|error| error.to_string())?;
+            let scene =
+                normalize_neighborhood_layout(neighborhood, vault_layout.as_ref(), Some(&path));
+            Ok((scene, None))
+        }
+    }
+}
+
+fn load_graph_with_dispatch<Dispatch>(session: GraphSessionHandles, dispatch: Dispatch)
+where
+    Dispatch: FnOnce(Box<dyn FnOnce() -> GraphLoadResult + Send>, Box<dyn FnOnce(GraphLoadResult)>),
+{
+    let scope = *session.scope.borrow();
+    let depth = session.depth.get();
+    let selected_path = session.selected_path.borrow().clone();
+    let loading_scene = GraphScene::loading(selected_path.clone());
+    sync_graph_ui(&session, loading_scene);
+
+    let generation = session.request_generation.get() + 1;
+    session.request_generation.set(generation);
+    let client = session.client.as_ref().clone();
+    let vault_layout = session.vault_layout.borrow().clone();
+
+    dispatch(
+        Box::new(move || request_graph_scene(&client, scope, selected_path, depth, vault_layout)),
+        Box::new(move |result| {
+            if session.request_generation.get() != generation {
+                return;
+            }
+            match result {
+                Ok((scene, new_vault_layout)) => {
+                    if let Some(layout) = new_vault_layout {
+                        *session.vault_layout.borrow_mut() = Some(layout);
+                    }
+                    sync_graph_ui(&session, scene);
+                }
+                Err(error) => {
+                    sync_graph_ui(
+                        &session,
+                        GraphScene::error(error, session.selected_path.borrow().clone()),
+                    );
+                }
+            }
+        }),
+    );
+}
+
+fn load_graph(session: GraphSessionHandles) {
+    load_graph_with_dispatch(session, |work, ui| {
+        async_bridge::run_background(work).attach_local(move |result| {
+            ui(result);
+        });
+    });
+}
+
+fn ensure_graph_loaded(session: GraphSessionHandles) {
+    let state = session.current_scene.borrow().load_state.clone();
+    if matches!(state, crate::ui::graph_view::GraphLoadState::Idle) {
+        load_graph(session);
+    } else {
+        let scene = session.current_scene.borrow().clone();
+        sync_graph_ui(&session, scene);
+    }
 }
 
 #[cfg(test)]
@@ -714,16 +855,8 @@ impl KnotWindow {
         let search_view = Rc::new(SearchView::new(Rc::clone(&client)));
         content_stack.add_titled(search_view.widget(), Some("search"), "Search");
 
-        // Graph view (placeholder)
-        let graph_view = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .build();
-        let graph_label = gtk::Label::builder()
-            .label("Graph view coming soon")
-            .vexpand(true)
-            .build();
-        graph_view.append(&graph_label);
-        content_stack.add_titled(&graph_view, Some("graph"), "Graph");
+        let graph_view = Rc::new(GraphView::new());
+        content_stack.add_titled(graph_view.widget(), Some("graph"), "Graph");
 
         // Settings view (placeholder)
         let settings_view = gtk::Box::builder()
@@ -760,6 +893,7 @@ impl KnotWindow {
             create_vault_btn,
             editor,
             search_view,
+            graph_view,
             content_stack,
             current_note: Rc::new(RefCell::new(None)),
             note_load_state: Rc::new(RefCell::new(RequestState::idle())),
@@ -841,6 +975,13 @@ impl KnotWindow {
     }
 
     fn setup_signals(&self) {
+        let graph_scope = Rc::new(RefCell::new(GraphScope::Vault));
+        let graph_depth = Rc::new(Cell::new(1_u32));
+        let graph_selected_path = Rc::new(RefCell::new(None::<String>));
+        let graph_vault_layout = Rc::new(RefCell::new(None::<GraphLayout>));
+        let graph_current_scene = Rc::new(RefCell::new(GraphScene::idle()));
+        let graph_request_generation = Rc::new(Cell::new(0_u64));
+
         let window = self.window.clone();
         let current_note = Rc::clone(&self.current_note);
         let editor_for_modified = Rc::clone(&self.editor);
@@ -855,6 +996,37 @@ impl KnotWindow {
             }
         });
 
+        let shell_ui = ShellUiHandles {
+            shell_state: Rc::clone(&self.shell_state),
+            tool_rail: self.tool_rail.clone(),
+            context_panel: Rc::clone(&self.context_panel),
+            content_stack: self.content_stack.clone(),
+            inspector_rail: self.inspector_rail.clone(),
+            search_view: Rc::clone(&self.search_view),
+        };
+        let note_session = NoteSessionHandles {
+            window: self.window.clone(),
+            editor: Rc::clone(&self.editor),
+            current_note: Rc::clone(&self.current_note),
+            note_load_state: Rc::clone(&self.note_load_state),
+            note_load_generation: Rc::clone(&self.note_load_generation),
+            shell_ui: shell_ui.clone(),
+        };
+        let dispatch_note_load =
+            build_note_load_dispatcher(Rc::clone(&self.client), note_session.clone());
+
+        let graph_session = GraphSessionHandles {
+            client: Rc::clone(&self.client),
+            graph_view: Rc::clone(&self.graph_view),
+            context_panel: Rc::clone(&self.context_panel),
+            scope: Rc::clone(&graph_scope),
+            depth: Rc::clone(&graph_depth),
+            selected_path: Rc::clone(&graph_selected_path),
+            vault_layout: Rc::clone(&graph_vault_layout),
+            current_scene: Rc::clone(&graph_current_scene),
+            request_generation: Rc::clone(&graph_request_generation),
+        };
+
         // Tool mode changes
         let content_stack = self.content_stack.clone();
         let context_panel_ref = Rc::clone(&self.context_panel);
@@ -862,6 +1034,7 @@ impl KnotWindow {
         let tool_rail = self.tool_rail.clone();
         let search_view = Rc::clone(&self.search_view);
         let shell_state = Rc::clone(&self.shell_state);
+        let graph_session_for_mode = graph_session.clone();
         self.tool_rail.connect_mode_changed(move |mode| {
             let mut shell_state = shell_state.borrow_mut();
             shell_state.select_tool(mode);
@@ -873,6 +1046,9 @@ impl KnotWindow {
                 &inspector_rail,
                 search_view.as_ref(),
             );
+            if matches!(mode, ToolMode::Graph) {
+                ensure_graph_loaded(graph_session_for_mode.clone());
+            }
         });
 
         // Settings button
@@ -895,25 +1071,6 @@ impl KnotWindow {
             );
         });
 
-        let shell_ui = ShellUiHandles {
-            shell_state: Rc::clone(&self.shell_state),
-            tool_rail: self.tool_rail.clone(),
-            context_panel: Rc::clone(&self.context_panel),
-            content_stack: self.content_stack.clone(),
-            inspector_rail: self.inspector_rail.clone(),
-            search_view: Rc::clone(&self.search_view),
-        };
-        let note_session = NoteSessionHandles {
-            window: self.window.clone(),
-            editor: Rc::clone(&self.editor),
-            current_note: Rc::clone(&self.current_note),
-            note_load_state: Rc::clone(&self.note_load_state),
-            note_load_generation: Rc::clone(&self.note_load_generation),
-            shell_ui: shell_ui.clone(),
-        };
-        let dispatch_note_load =
-            build_note_load_dispatcher(Rc::clone(&self.client), note_session.clone());
-
         let note_switch_prompt = NoteSwitchPromptHandles {
             window: self.window.clone(),
             editor: Rc::clone(&self.editor),
@@ -923,7 +1080,7 @@ impl KnotWindow {
 
         self.context_panel.connect_note_selected({
             let dispatch_note_load = Rc::clone(&dispatch_note_load);
-            move |path| dispatch_note_load(NoteLoadOrigin::ContextSelection, path)
+            move |path| dispatch_note_load(NoteLoadOrigin::Context, path)
         });
         self.context_panel.connect_note_switch_guard({
             let editor = Rc::clone(&self.editor);
@@ -932,7 +1089,7 @@ impl KnotWindow {
                 if editor.is_modified() {
                     present_dirty_note_switch_prompt(
                         &note_switch_prompt,
-                        NoteLoadOrigin::ContextSelection,
+                        NoteLoadOrigin::Context,
                         path,
                     );
                     return NoteSwitchDecision::Prompt;
@@ -950,19 +1107,85 @@ impl KnotWindow {
                 if editor.is_modified() {
                     present_dirty_note_switch_prompt(
                         &note_switch_prompt,
-                        NoteLoadOrigin::SearchSelection,
+                        NoteLoadOrigin::Search,
                         path,
                     );
                     return;
                 }
 
-                dispatch_note_load(NoteLoadOrigin::SearchSelection, path);
+                dispatch_note_load(NoteLoadOrigin::Search, path);
             }
         });
 
         let note_session_for_clear = note_session.clone();
         self.context_panel.connect_selection_cleared(move || {
             clear_active_note(&note_session_for_clear);
+        });
+
+        self.graph_view.connect_node_selected({
+            let graph_session = graph_session.clone();
+            move |path| {
+                set_graph_selection(&graph_session, Some(path.to_string()));
+                if matches!(*graph_session.scope.borrow(), GraphScope::Neighborhood) {
+                    load_graph(graph_session.clone());
+                }
+            }
+        });
+
+        self.graph_view.connect_node_activated({
+            let editor = Rc::clone(&self.editor);
+            let note_switch_prompt = note_switch_prompt.clone();
+            let dispatch_note_load = Rc::clone(&dispatch_note_load);
+            move |path| {
+                if editor.is_modified() {
+                    present_dirty_note_switch_prompt(
+                        &note_switch_prompt,
+                        NoteLoadOrigin::Graph,
+                        path,
+                    );
+                } else {
+                    dispatch_note_load(NoteLoadOrigin::Graph, path);
+                }
+            }
+        });
+
+        self.context_panel.connect_graph_event({
+            let graph_session = graph_session.clone();
+            let editor = Rc::clone(&self.editor);
+            let note_switch_prompt = note_switch_prompt.clone();
+            let dispatch_note_load = Rc::clone(&dispatch_note_load);
+            move |event| match event {
+                GraphPanelEvent::ScopeChanged(scope) => {
+                    *graph_session.scope.borrow_mut() = scope;
+                    load_graph(graph_session.clone());
+                }
+                GraphPanelEvent::DepthChanged(depth) => {
+                    graph_session.depth.set(depth.max(1));
+                    if matches!(*graph_session.scope.borrow(), GraphScope::Neighborhood) {
+                        load_graph(graph_session.clone());
+                    } else {
+                        let scene = graph_session.current_scene.borrow().clone();
+                        sync_graph_ui(&graph_session, scene);
+                    }
+                }
+                GraphPanelEvent::ResetRequested => {
+                    *graph_session.scope.borrow_mut() = GraphScope::Vault;
+                    graph_session.depth.set(1);
+                    *graph_session.selected_path.borrow_mut() = None;
+                    load_graph(graph_session.clone());
+                }
+                GraphPanelEvent::OpenSelected(path) => {
+                    if editor.is_modified() {
+                        present_dirty_note_switch_prompt(
+                            &note_switch_prompt,
+                            NoteLoadOrigin::Graph,
+                            &path,
+                        );
+                    } else {
+                        dispatch_note_load(NoteLoadOrigin::Graph, &path);
+                    }
+                }
+            }
         });
 
         let startup_refresh = StartupRefreshHandles {
@@ -1024,6 +1247,8 @@ mod log {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::{GraphEdge, GraphNode};
+    use crate::ui::graph_view::{GraphLoadState, GraphScope};
     use crate::ui::request_state::RequestState;
     use std::cell::Cell;
 
@@ -1053,6 +1278,30 @@ mod tests {
             type_badge: Some("MD".to_string()),
             is_dimmed: false,
         }
+    }
+
+    fn sample_graph_scene() -> GraphScene {
+        GraphScene::ready(
+            vec![
+                GraphNode {
+                    id: "notes/one.md".to_string(),
+                    label: "one".to_string(),
+                    x: 0.0,
+                    y: 0.0,
+                },
+                GraphNode {
+                    id: "notes/two.md".to_string(),
+                    label: "two".to_string(),
+                    x: 100.0,
+                    y: 0.0,
+                },
+            ],
+            vec![GraphEdge {
+                source: "notes/one.md".to_string(),
+                target: "notes/two.md".to_string(),
+            }],
+            Some("notes/one.md".to_string()),
+        )
     }
 
     #[test]
@@ -1273,23 +1522,27 @@ mod tests {
     #[test]
     fn note_load_completion_routes_to_notes_only_for_matching_origin() {
         assert!(should_route_loaded_note_to_notes(
-            NoteLoadOrigin::ContextSelection,
+            NoteLoadOrigin::Context,
             ToolMode::Notes
         ));
         assert!(!should_route_loaded_note_to_notes(
-            NoteLoadOrigin::ContextSelection,
+            NoteLoadOrigin::Context,
             ToolMode::Search
         ));
         assert!(should_route_loaded_note_to_notes(
-            NoteLoadOrigin::SearchSelection,
+            NoteLoadOrigin::Search,
             ToolMode::Search
         ));
-        assert!(!should_route_loaded_note_to_notes(
-            NoteLoadOrigin::ContextSelection,
+        assert!(should_route_loaded_note_to_notes(
+            NoteLoadOrigin::Graph,
             ToolMode::Graph
         ));
         assert!(!should_route_loaded_note_to_notes(
-            NoteLoadOrigin::SearchSelection,
+            NoteLoadOrigin::Context,
+            ToolMode::Graph
+        ));
+        assert!(!should_route_loaded_note_to_notes(
+            NoteLoadOrigin::Search,
             ToolMode::Settings
         ));
     }
@@ -1297,13 +1550,35 @@ mod tests {
     #[test]
     fn context_selection_does_not_reuse_search_only_routing() {
         assert!(!should_route_loaded_note_to_notes(
-            NoteLoadOrigin::ContextSelection,
+            NoteLoadOrigin::Context,
             ToolMode::Search
         ));
         assert!(should_route_loaded_note_to_notes(
-            NoteLoadOrigin::SearchSelection,
+            NoteLoadOrigin::Search,
             ToolMode::Search
         ));
+    }
+
+    #[test]
+    fn graph_panel_state_exposes_scope_depth_and_selected_details() {
+        let scene = sample_graph_scene();
+
+        let state = graph_panel_state(GraphScope::Neighborhood, 2, &scene);
+
+        assert_eq!(state.scope, GraphScope::Neighborhood);
+        assert_eq!(state.depth, 2);
+        assert_eq!(state.load_state, GraphLoadState::Ready);
+        assert_eq!(state.details.selected_path.as_deref(), Some("notes/one.md"));
+        assert_eq!(state.details.neighbors, vec!["notes/two.md".to_string()]);
+    }
+
+    #[test]
+    fn neighborhood_graph_request_without_selection_returns_error_scene() {
+        let result = request_graph_scene(&test_client(), GraphScope::Neighborhood, None, 1, None)
+            .expect("request should return a scene");
+
+        assert_eq!(result.1, None);
+        assert!(matches!(result.0.load_state, GraphLoadState::Error(_)));
     }
 
     #[test]
