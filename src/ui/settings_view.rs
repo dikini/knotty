@@ -27,6 +27,14 @@ struct PluginWidgets {
     status_label: gtk::Label,
 }
 
+#[derive(Clone)]
+struct AppearanceWidgets {
+    color_scheme_dropdown: gtk::DropDown,
+    context_width_spin: gtk::SpinButton,
+    inspector_width_spin: gtk::SpinButton,
+    status_label: gtk::Label,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VaultSettingsForm {
     file_visibility: String,
@@ -241,10 +249,12 @@ impl SettingsView {
         wire_appearance_actions(
             Rc::clone(&on_preferences_changed),
             Rc::clone(&current_config),
-            color_scheme_dropdown.clone(),
-            context_width_spin.clone(),
-            inspector_width_spin.clone(),
-            appearance_status.clone(),
+            AppearanceWidgets {
+                color_scheme_dropdown: color_scheme_dropdown.clone(),
+                context_width_spin: context_width_spin.clone(),
+                inspector_width_spin: inspector_width_spin.clone(),
+                status_label: appearance_status.clone(),
+            },
             appearance_save_btn,
             appearance_reload_btn,
         );
@@ -578,28 +588,24 @@ fn format_maintenance_result(result: &MaintenanceResult) -> String {
 fn wire_appearance_actions(
     on_preferences_changed: PreferencesChangedCallback,
     current_config: Rc<RefCell<KnottyConfig>>,
-    color_scheme_dropdown: gtk::DropDown,
-    context_width_spin: gtk::SpinButton,
-    inspector_width_spin: gtk::SpinButton,
-    status_label: gtk::Label,
+    widgets: AppearanceWidgets,
     save_button: gtk::Button,
     reload_button: gtk::Button,
 ) {
-    let save_status_label = status_label.clone();
-    let save_color_scheme_dropdown = color_scheme_dropdown.clone();
-    let save_context_width_spin = context_width_spin.clone();
-    let save_inspector_width_spin = inspector_width_spin.clone();
+    let save_widgets = widgets.clone();
     let save_preferences_callback = Rc::clone(&on_preferences_changed);
     let save_current_config = Rc::clone(&current_config);
     save_button.connect_clicked(move |_| {
-        save_status_label.set_label("Saving appearance preferences...");
+        save_widgets
+            .status_label
+            .set_label("Saving appearance preferences...");
         let config = gather_config_from_widgets(
             &save_current_config.borrow(),
-            &save_color_scheme_dropdown,
-            &save_context_width_spin,
-            &save_inspector_width_spin,
+            &save_widgets.color_scheme_dropdown,
+            &save_widgets.context_width_spin,
+            &save_widgets.inspector_width_spin,
         );
-        let status_label = save_status_label.clone();
+        let status_label = save_widgets.status_label.clone();
         let on_preferences_changed = Rc::clone(&save_preferences_callback);
         let save_current_config = Rc::clone(&save_current_config);
         async_bridge::run_background(move || {
@@ -621,18 +627,17 @@ fn wire_appearance_actions(
         });
     });
 
-    let reload_status_label = status_label.clone();
-    let reload_color_scheme_dropdown = color_scheme_dropdown.clone();
-    let reload_context_width_spin = context_width_spin.clone();
-    let reload_inspector_width_spin = inspector_width_spin.clone();
+    let reload_widgets = widgets.clone();
     let reload_preferences_callback = Rc::clone(&on_preferences_changed);
     let reload_current_config = Rc::clone(&current_config);
     reload_button.connect_clicked(move |_| {
-        reload_status_label.set_label("Reloading appearance preferences...");
-        let status_label = reload_status_label.clone();
-        let color_scheme_dropdown = reload_color_scheme_dropdown.clone();
-        let context_width_spin = reload_context_width_spin.clone();
-        let inspector_width_spin = reload_inspector_width_spin.clone();
+        reload_widgets
+            .status_label
+            .set_label("Reloading appearance preferences...");
+        let status_label = reload_widgets.status_label.clone();
+        let color_scheme_dropdown = reload_widgets.color_scheme_dropdown.clone();
+        let context_width_spin = reload_widgets.context_width_spin.clone();
+        let inspector_width_spin = reload_widgets.inspector_width_spin.clone();
         let on_preferences_changed = Rc::clone(&reload_preferences_callback);
         let reload_current_config = Rc::clone(&reload_current_config);
         async_bridge::run_background(load_knotty_config).attach_local(move |result| match result {

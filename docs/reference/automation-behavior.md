@@ -15,6 +15,7 @@ Favor semantic state capture and semantic UI actions over raw widget scraping so
   - local config enables automation in `~/.config/knot/knotty.toml` via `automation.enabled = true`
   - the process is started with `--enable-automation --automation-token <TOKEN>`
 - GTK must surface a visible automation-active indicator when automation is live
+- unrelated local-preference saves must preserve the automation config section instead of resetting it to defaults
 
 ## Discovery Surface
 
