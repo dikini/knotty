@@ -24,6 +24,14 @@
 - Use the local reference docs as the source of truth for protocol framing and note DTO field names.
 - Do not commit until the full slice verification section is green.
 
+## Execution Status
+
+- Completed in worktree `feature/gtk-runtime-contract`.
+- `GTR-001` was already satisfied in the branch baseline and was verified rather than reimplemented.
+- `GTR-002` through `GTR-006` were implemented, including async note loading, stale-result protection, and bridge disconnect handling.
+- Review follow-up: async note-load completion now preserves a newer Graph or Settings surface instead of forcing the editor route after late results.
+- Final verification: `cargo fmt --check`, `cargo test`, and `cargo check` passed on the completed slice.
+
 ## Rust Guidance For This Slice
 
 - Use `Result` and explicit error types for request and decode failures.
