@@ -13,3 +13,4 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 ### Fixed
 
 - Match the CLI default socket path with the documented `XDG_RUNTIME_DIR/knot/knot.sock` contract so the baseline Rust test suite passes.
+- Keep async note-load completion from overriding a newer Graph or Settings navigation choice.

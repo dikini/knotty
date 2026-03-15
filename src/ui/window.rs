@@ -34,6 +34,10 @@ fn update_note_load_state(state: &Rc<RefCell<NoteLoadState>>, result: &NoteLoadR
     };
 }
 
+fn should_route_note_load_to_editor(current_surface: &str) -> bool {
+    !matches!(current_surface, "graph" | "settings")
+}
+
 fn begin_note_load_with_dispatch<Dispatch, OnResult>(
     client: KnotdClient,
     path: String,
@@ -302,7 +306,13 @@ impl KnotWindow {
                                 window.set_title(Some(&format!("{} — Knot", note.title)));
                                 editor_ref.load_note(&note);
                                 *current_note.borrow_mut() = Some(note);
-                                content_stack.set_visible_child_name("editor");
+                                let current_surface = content_stack
+                                    .visible_child_name()
+                                    .map(|name| name.to_string())
+                                    .unwrap_or_else(|| "empty".to_string());
+                                if should_route_note_load_to_editor(&current_surface) {
+                                    content_stack.set_visible_child_name("editor");
+                                }
                             }
                             Err(error) => {
                                 window.set_title(Some("Failed to load note — Knot"));
@@ -466,5 +476,13 @@ mod tests {
 
         assert_eq!(*first_state.borrow(), RequestState::Loading);
         assert_eq!(*second_state.borrow(), RequestState::Success(second_note));
+    }
+
+    #[test]
+    fn note_load_completion_does_not_override_graph_or_settings_surface() {
+        assert!(!should_route_note_load_to_editor("graph"));
+        assert!(!should_route_note_load_to_editor("settings"));
+        assert!(should_route_note_load_to_editor("empty"));
+        assert!(should_route_note_load_to_editor("editor"));
     }
 }
