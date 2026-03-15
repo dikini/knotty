@@ -41,8 +41,8 @@ cargo run
 1. Start a compatible `knotd` daemon:
 ```bash
 # Example: listen on the default XDG socket path
-mkdir -p "${XDG_RUNTIME_DIR:-/run/user/1000}/knot"
-knotd --vault /path/to/vault --listen-unix "${XDG_RUNTIME_DIR:-/run/user/1000}/knot/knot.sock"
+mkdir -p "$XDG_RUNTIME_DIR/knot"
+knotd --vault /path/to/vault --listen-unix "$XDG_RUNTIME_DIR/knot/knotd.sock"
 ```
 
 2. Run the GTK4 UI:
@@ -54,7 +54,7 @@ cargo run
 ### CLI Arguments
 
 ```bash
-# Use default socket path ($XDG_RUNTIME_DIR/knot or /run/user/1000/knot)
+# Use default socket path from XDG_RUNTIME_DIR
 cargo run
 
 # Specify custom socket path
@@ -71,10 +71,9 @@ KNOTD_SOCKET_PATH=/tmp/knotd.sock cargo run
 The default socket path is determined in this priority:
 1. `--socket` CLI argument
 2. `KNOTD_SOCKET_PATH` environment variable  
-3. `$XDG_RUNTIME_DIR/knot/knot.sock` (usually `/run/user/1000/knot/knot.sock`)
-4. `/run/user/1000/knot/knot.sock` (fallback)
+3. `$XDG_RUNTIME_DIR/knot/knotd.sock`
 
-The CLI and client now use the same default socket contract: when `XDG_RUNTIME_DIR` is set, the socket path is resolved under the `knot/` subdirectory rather than directly in the runtime directory.
+If `XDG_RUNTIME_DIR` is unavailable, pass `--socket` or set `KNOTD_SOCKET_PATH` explicitly. The app does not guess a `/run/user/<uid>` fallback.
 
 ## Data Integration
 

@@ -43,6 +43,8 @@ Stabilize the GTK frontend data contract and execution model so later slices can
 
 **FR-4**: Startup contract correctness
 - Socket path resolution must match the documented behavior.
+- The default socket path is derived from `XDG_RUNTIME_DIR/knot/knotd.sock`.
+- If `XDG_RUNTIME_DIR` is unavailable, GTK must require explicit configuration via `--socket` or `KNOTD_SOCKET_PATH` instead of guessing a user-specific fallback path.
 - The startup contract must be covered by tests.
 
 **FR-5**: Error propagation

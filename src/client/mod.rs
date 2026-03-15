@@ -352,15 +352,10 @@ impl Default for KnotdClient {
 }
 
 fn default_socket_path() -> String {
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        std::path::PathBuf::from(runtime_dir)
-            .join("knot")
-            .join("knotd.sock")
-            .to_string_lossy()
-            .to_string()
-    } else {
-        "/run/user/1000/knot/knotd.sock".to_string()
-    }
+    crate::runtime_contract::default_socket_path()
+        .unwrap_or_else(|| std::path::PathBuf::from(crate::runtime_contract::default_socket_help()))
+        .to_string_lossy()
+        .into_owned()
 }
 
 // ===== Data Types =====
