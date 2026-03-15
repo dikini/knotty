@@ -26,6 +26,7 @@ Default flow for non-trivial work:
 1. confirm or update the relevant spec
 2. create or update a plan
 3. execute against that plan
+4. review work using rust-skills and review skills 
 4. update `CHANGELOG.md`
 5. run the verification gates
 
