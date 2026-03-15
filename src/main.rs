@@ -18,6 +18,8 @@ use ui::window::KnotWindow;
 use std::sync::OnceLock;
 pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+pub static AUTOMATION_RUNTIME_ENABLED: OnceLock<bool> = OnceLock::new();
+pub static AUTOMATION_RUNTIME_TOKEN: OnceLock<Option<String>> = OnceLock::new();
 
 thread_local! {
     static MAIN_WINDOW: RefCell<Option<Rc<KnotWindow>>> = const { RefCell::new(None) };
@@ -62,12 +64,27 @@ fn main() -> anyhow::Result<()> {
         )
         .map_err(|_| anyhow::anyhow!("Failed to initialize background runtime"))?;
 
+    AUTOMATION_RUNTIME_ENABLED
+        .set(args.automation_enabled && args.automation_token.is_some())
+        .map_err(|_| anyhow::anyhow!("Failed to initialize automation runtime gate"))?;
+    AUTOMATION_RUNTIME_TOKEN
+        .set(args.automation_token.clone())
+        .map_err(|_| anyhow::anyhow!("Failed to initialize automation runtime token"))?;
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter("info,knot_gtk=debug")
         .init();
 
     tracing::info!("Using socket path: {}", args.socket_path.display());
+    tracing::info!(
+        "Automation runtime gate: {}",
+        if args.automation_enabled && args.automation_token.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     // Initialize GTK/libadwaita
     gtk::init()?;
