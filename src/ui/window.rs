@@ -431,6 +431,7 @@ fn clear_active_note(
     window: &libadwaita::ApplicationWindow,
     editor: &NoteEditor,
     current_note: &Rc<RefCell<Option<NoteData>>>,
+    note_load_generation: &Rc<RefCell<u64>>,
     shell_state: &Rc<RefCell<ShellState>>,
     tool_rail: &ToolRail,
     context_panel: &ContextPanel,
@@ -438,6 +439,7 @@ fn clear_active_note(
     inspector_rail: &InspectorRail,
     search_view: &SearchView,
 ) {
+    *note_load_generation.borrow_mut() += 1;
     window.set_title(Some("Knot"));
     editor.clear();
     *current_note.borrow_mut() = None;
@@ -797,6 +799,7 @@ impl KnotWindow {
         let window = self.window.clone();
         let editor = Rc::clone(&self.editor);
         let current_note = Rc::clone(&self.current_note);
+        let note_load_generation = Rc::clone(&self.note_load_generation);
         let shell_state = Rc::clone(&self.shell_state);
         let tool_rail = self.tool_rail.clone();
         let context_panel = Rc::clone(&self.context_panel);
@@ -808,6 +811,7 @@ impl KnotWindow {
                 &window,
                 editor.as_ref(),
                 &current_note,
+                &note_load_generation,
                 &shell_state,
                 &tool_rail,
                 context_panel.as_ref(),
@@ -1169,5 +1173,39 @@ mod tests {
         assert_eq!(shell_state.tool_mode(), ToolMode::Search);
         assert_eq!(content_child_name_for_shell(&shell_state), "search");
         assert_eq!(shell_state.inspector_mode(), InspectorMode::Hidden);
+    }
+
+    #[test]
+    fn bumping_generation_before_result_arrives_discards_in_flight_note_load() {
+        let state = Rc::new(RefCell::new(RequestState::idle()));
+        let generation = Rc::new(RefCell::new(1_u64));
+        let deferred: Rc<RefCell<Option<Box<dyn FnOnce()>>>> = Rc::new(RefCell::new(None));
+        let note = sample_note();
+
+        begin_note_load_with_dispatch(
+            KnotdClient::with_socket_path("/tmp/knot.sock"),
+            "notes/example.md".to_string(),
+            Rc::clone(&state),
+            1,
+            Rc::clone(&generation),
+            {
+                let deferred = Rc::clone(&deferred);
+                let note = note.clone();
+                move |_work, ui| {
+                    *deferred.borrow_mut() = Some(Box::new(move || ui(Ok(note))));
+                }
+            },
+            |_| panic!("cleared load should not reach the UI callback"),
+        );
+
+        // Simulate clear_active_note bumping the generation before the load arrives.
+        *generation.borrow_mut() += 1;
+
+        deferred
+            .borrow_mut()
+            .take()
+            .expect("deferred result should be captured")();
+
+        assert_eq!(*state.borrow(), RequestState::Loading);
     }
 }
