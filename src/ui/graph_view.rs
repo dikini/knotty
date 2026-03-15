@@ -383,19 +383,24 @@ impl GraphView {
             let on_node_selected = Rc::clone(&on_node_selected);
             let on_node_activated = Rc::clone(&on_node_activated);
             move |_gesture, n_press, x, y| {
-                let mut scene = scene.borrow_mut();
                 let width = drawing_area.width() as f64;
                 let height = drawing_area.height() as f64;
-                if let Some(path) = hit_test_node(&scene, width, height, x, y) {
+                let selected_path = {
+                    let mut scene = scene.borrow_mut();
+                    let Some(path) = hit_test_node(&scene, width, height, x, y) else {
+                        return;
+                    };
                     scene.selected_path = Some(path.clone());
-                    drawing_area.queue_draw();
-                    if let Some(callback) = &*on_node_selected.borrow() {
-                        callback(&path);
-                    }
-                    if n_press >= 2 {
-                        if let Some(callback) = &*on_node_activated.borrow() {
-                            callback(&path);
-                        }
+                    path
+                };
+
+                drawing_area.queue_draw();
+                if let Some(callback) = &*on_node_selected.borrow() {
+                    callback(&selected_path);
+                }
+                if n_press >= 2 {
+                    if let Some(callback) = &*on_node_activated.borrow() {
+                        callback(&selected_path);
                     }
                 }
             }

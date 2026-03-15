@@ -13,6 +13,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Remove the machine-specific `/run/user/1000` socket fallback and require `XDG_RUNTIME_DIR`, `--socket`, or `KNOTD_SOCKET_PATH` for the GTK daemon connection contract.
 - Keep the primary GTK window alive for the application lifetime instead of dropping the window wrapper immediately after `present()`.
 - Remove the redundant editor mode-button group assignment that could hang startup while activating the default source mode toggle.
+- Drop the graph-view scene borrow before node-selection callbacks so graph clicks do not panic with `RefCell already borrowed` during shell/context updates.
 - Tolerate note payloads whose optional `embed` object omits `kind` or other fields so GTK loads the note instead of failing the entire response decode.
 - Tolerate partial note payloads for headings, backlinks, media, and mode availability so note loads degrade instead of failing hard on missing nested fields.
 
