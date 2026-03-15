@@ -34,6 +34,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add a dedicated Rust clippy gate helper and include `cargo clippy` in the local git gate checks, with warnings treated as temporary debt until the repo reaches a clean clippy baseline.
 - Add a dedicated GTK quality-hardening spec, design note, and implementation plan for clippy cleanup, dead-code reduction, and test tightening after the main parity slices.
 - Harden GTK startup and note loading so the app keeps its main window alive and tolerates partial note payloads from knotd instead of failing note display.
+- Add the GTK graph slice with a drawing-area graph surface, normalized vault/neighborhood graph payloads, graph context controls, selected-node details, and note activation routed through the shared note loader.
 
 ### Changed
 
@@ -41,6 +42,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Align the editor design and plan docs with the shipped simpler edit surface, and stop compiling the dormant `ui::block_editor` module in this slice.
 - Replace the deprecated GTK explorer tree widget stack with a `TreeListModel`/`ListView`/`TreeExpander` implementation and tighten the local docs so GTK deprecation warnings remain an explicit maintenance signal.
 - Tighten the GTK quality slice so it targets clean `cargo check` and `cargo clippy` output, not just a partial warning reduction.
+- Align the graph spec, plan, and reference docs with the live knotd contract, including string-node neighborhood payloads and GTK-side normalization of focused graph scenes.
 
 ### Fixed
 

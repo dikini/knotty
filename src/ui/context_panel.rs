@@ -1,13 +1,42 @@
 use gtk::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::client::KnotdClient;
 use crate::ui::explorer::{ExplorerSelection, ExplorerView, NoteSwitchDecision};
+use crate::ui::graph_view::{graph_status_text, GraphContextDetails, GraphLoadState, GraphScope};
 use crate::ui::tool_rail::ToolMode;
 
 type NoteSelectedCallback = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
 type SelectionClearedCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+type GraphEventCallback = Rc<RefCell<Option<Box<dyn Fn(GraphPanelEvent)>>>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphPanelEvent {
+    ScopeChanged(GraphScope),
+    DepthChanged(u32),
+    ResetRequested,
+    OpenSelected(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphPanelState {
+    pub scope: GraphScope,
+    pub depth: u32,
+    pub load_state: GraphLoadState,
+    pub details: GraphContextDetails,
+}
+
+impl Default for GraphPanelState {
+    fn default() -> Self {
+        Self {
+            scope: GraphScope::Vault,
+            depth: 1,
+            load_state: GraphLoadState::Idle,
+            details: GraphContextDetails::empty(),
+        }
+    }
+}
 
 pub struct ContextPanel {
     widget: gtk::Box,
@@ -20,6 +49,17 @@ pub struct ContextPanel {
     delete_btn: gtk::Button,
     on_note_selected: NoteSelectedCallback,
     on_selection_cleared: SelectionClearedCallback,
+    on_graph_event: GraphEventCallback,
+    graph_status_label: gtk::Label,
+    graph_selected_label: gtk::Label,
+    graph_selected_path: Rc<RefCell<Option<String>>>,
+    graph_neighbors_label: gtk::Label,
+    graph_backlinks_label: gtk::Label,
+    graph_depth_spin: gtk::SpinButton,
+    graph_open_btn: gtk::Button,
+    graph_vault_scope_btn: gtk::CheckButton,
+    graph_node_scope_btn: gtk::CheckButton,
+    graph_syncing: Rc<Cell<bool>>,
 }
 
 fn root_window(widget: &gtk::Widget) -> Option<gtk::Window> {
@@ -45,6 +85,21 @@ fn show_status(label: &gtk::Label, message: &str, is_error: bool) {
     } else {
         label.remove_css_class("error");
         label.add_css_class("dim-label");
+    }
+}
+
+fn graph_neighbors_text(items: &[String]) -> String {
+    if items.is_empty() {
+        "None".to_string()
+    } else {
+        items.join("\n")
+    }
+}
+
+fn graph_selected_text(details: &GraphContextDetails) -> String {
+    match (&details.selected_label, &details.selected_path) {
+        (Some(label), Some(path)) => format!("{label}\n{path}"),
+        _ => "No node selected".to_string(),
     }
 }
 
@@ -272,15 +327,73 @@ impl ContextPanel {
 
         let graph_view = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
             .margin_start(12)
             .margin_end(12)
             .margin_top(12)
             .build();
-        graph_view.append(
-            &gtk::Label::builder()
-                .label("Graph controls will appear here")
-                .build(),
-        );
+        let graph_status_label = gtk::Label::builder()
+            .label("Graph is idle")
+            .wrap(true)
+            .xalign(0.0)
+            .css_classes(vec!["dim-label".to_string()])
+            .build();
+        let scope_row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(6)
+            .build();
+        let graph_vault_scope_btn = gtk::CheckButton::builder().label("Vault").build();
+        let graph_node_scope_btn = gtk::CheckButton::builder().label("Neighborhood").build();
+        graph_node_scope_btn.set_group(Some(&graph_vault_scope_btn));
+        scope_row.append(&graph_vault_scope_btn);
+        scope_row.append(&graph_node_scope_btn);
+        let depth_row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(6)
+            .build();
+        depth_row.append(&gtk::Label::builder().label("Depth").xalign(0.0).build());
+        let graph_depth_spin = gtk::SpinButton::with_range(1.0, 4.0, 1.0);
+        depth_row.append(&graph_depth_spin);
+        let graph_reset_btn = gtk::Button::with_label("Reset");
+        depth_row.append(&graph_reset_btn);
+        let graph_selected_label = gtk::Label::builder()
+            .label("No node selected")
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        let graph_open_btn = gtk::Button::with_label("Open selected note");
+        let neighbors_header = gtk::Label::builder()
+            .label("Neighbors")
+            .xalign(0.0)
+            .css_classes(vec!["caption-heading".to_string()])
+            .build();
+        let graph_neighbors_label = gtk::Label::builder()
+            .label("None")
+            .xalign(0.0)
+            .wrap(true)
+            .selectable(true)
+            .build();
+        let backlinks_header = gtk::Label::builder()
+            .label("Backlinks")
+            .xalign(0.0)
+            .css_classes(vec!["caption-heading".to_string()])
+            .build();
+        let graph_backlinks_label = gtk::Label::builder()
+            .label("None")
+            .xalign(0.0)
+            .wrap(true)
+            .selectable(true)
+            .build();
+
+        graph_view.append(&graph_status_label);
+        graph_view.append(&scope_row);
+        graph_view.append(&depth_row);
+        graph_view.append(&graph_selected_label);
+        graph_view.append(&graph_open_btn);
+        graph_view.append(&neighbors_header);
+        graph_view.append(&graph_neighbors_label);
+        graph_view.append(&backlinks_header);
+        graph_view.append(&graph_backlinks_label);
 
         let settings_view = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -306,6 +419,8 @@ impl ContextPanel {
 
         let on_note_selected: NoteSelectedCallback = Rc::new(RefCell::new(None));
         let on_selection_cleared: SelectionClearedCallback = Rc::new(RefCell::new(None));
+        let on_graph_event: GraphEventCallback = Rc::new(RefCell::new(None));
+        let graph_syncing = Rc::new(Cell::new(false));
 
         let on_note_selected_clone = Rc::clone(&on_note_selected);
         explorer.connect_note_selected(move |path| {
@@ -345,10 +460,23 @@ impl ContextPanel {
             delete_btn,
             on_note_selected,
             on_selection_cleared,
+            on_graph_event,
+            graph_status_label,
+            graph_selected_label,
+            graph_selected_path: Rc::new(RefCell::new(None)),
+            graph_neighbors_label,
+            graph_backlinks_label,
+            graph_depth_spin,
+            graph_open_btn,
+            graph_vault_scope_btn,
+            graph_node_scope_btn,
+            graph_syncing,
         };
 
         panel.wire_note_actions(new_note_btn, new_folder_btn);
         panel.wire_selection_actions();
+        panel.wire_graph_actions(graph_reset_btn);
+        panel.set_graph_state(&GraphPanelState::default());
         panel.explorer.refresh();
 
         panel
@@ -474,6 +602,60 @@ impl ContextPanel {
         });
     }
 
+    fn wire_graph_actions(&self, graph_reset_btn: gtk::Button) {
+        self.graph_vault_scope_btn.set_active(true);
+
+        let graph_syncing = Rc::clone(&self.graph_syncing);
+        let on_graph_event = Rc::clone(&self.on_graph_event);
+        self.graph_vault_scope_btn.connect_toggled(move |btn| {
+            if graph_syncing.get() || !btn.is_active() {
+                return;
+            }
+            if let Some(callback) = &*on_graph_event.borrow() {
+                callback(GraphPanelEvent::ScopeChanged(GraphScope::Vault));
+            }
+        });
+
+        let graph_syncing = Rc::clone(&self.graph_syncing);
+        let on_graph_event = Rc::clone(&self.on_graph_event);
+        self.graph_node_scope_btn.connect_toggled(move |btn| {
+            if graph_syncing.get() || !btn.is_active() {
+                return;
+            }
+            if let Some(callback) = &*on_graph_event.borrow() {
+                callback(GraphPanelEvent::ScopeChanged(GraphScope::Neighborhood));
+            }
+        });
+
+        let graph_syncing = Rc::clone(&self.graph_syncing);
+        let on_graph_event = Rc::clone(&self.on_graph_event);
+        self.graph_depth_spin.connect_value_changed(move |spin| {
+            if graph_syncing.get() {
+                return;
+            }
+            if let Some(callback) = &*on_graph_event.borrow() {
+                callback(GraphPanelEvent::DepthChanged(spin.value_as_int() as u32));
+            }
+        });
+
+        let on_graph_event = Rc::clone(&self.on_graph_event);
+        graph_reset_btn.connect_clicked(move |_| {
+            if let Some(callback) = &*on_graph_event.borrow() {
+                callback(GraphPanelEvent::ResetRequested);
+            }
+        });
+
+        let on_graph_event = Rc::clone(&self.on_graph_event);
+        let selected_path = self.graph_selected_path.clone();
+        self.graph_open_btn.connect_clicked(move |_| {
+            if let (Some(path), Some(callback)) =
+                (selected_path.borrow().clone(), &*on_graph_event.borrow())
+            {
+                callback(GraphPanelEvent::OpenSelected(path));
+            }
+        });
+    }
+
     pub fn set_mode(&self, mode: ToolMode) {
         *self.mode.borrow_mut() = mode;
 
@@ -511,6 +693,38 @@ impl ContextPanel {
         F: Fn(&str) -> NoteSwitchDecision + 'static,
     {
         self.explorer.connect_note_switch_guard(f);
+    }
+
+    pub fn connect_graph_event<F>(&self, f: F)
+    where
+        F: Fn(GraphPanelEvent) + 'static,
+    {
+        *self.on_graph_event.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_graph_state(&self, state: &GraphPanelState) {
+        self.graph_syncing.set(true);
+        self.graph_status_label
+            .set_label(&graph_status_text(state.scope, &state.load_state));
+        self.graph_vault_scope_btn
+            .set_active(matches!(state.scope, GraphScope::Vault));
+        self.graph_node_scope_btn
+            .set_active(matches!(state.scope, GraphScope::Neighborhood));
+        self.graph_node_scope_btn
+            .set_sensitive(state.details.selected_path.is_some());
+        self.graph_depth_spin.set_value(state.depth as f64);
+        self.graph_depth_spin
+            .set_sensitive(matches!(state.scope, GraphScope::Neighborhood));
+        self.graph_selected_label
+            .set_label(&graph_selected_text(&state.details));
+        *self.graph_selected_path.borrow_mut() = state.details.selected_path.clone();
+        self.graph_neighbors_label
+            .set_label(&graph_neighbors_text(&state.details.neighbors));
+        self.graph_backlinks_label
+            .set_label(&graph_neighbors_text(&state.details.backlinks));
+        self.graph_open_btn
+            .set_sensitive(state.details.selected_path.is_some());
+        self.graph_syncing.set(false);
     }
 
     pub fn widget(&self) -> &gtk::Box {

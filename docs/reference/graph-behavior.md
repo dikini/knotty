@@ -22,17 +22,27 @@ pub struct GraphLayout {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphNode {
     pub id: String,
-    pub path: String,
     pub label: String,
-    pub x: f32,
-    pub y: f32,
-    pub degree: Option<u32>,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
+}
+```
+
+## Focused Neighborhood Type
+
+`graph_neighbors` currently returns a focused neighborhood payload rather than positioned nodes:
+
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphNeighborhood {
+    pub nodes: Vec<String>,
+    pub edges: Vec<GraphEdge>,
 }
 ```
 
@@ -65,13 +75,16 @@ pub struct GraphEdge {
 - allow node selection and note activation
 - show graph context details in the shared context panel
 - handle empty graph and graph error states explicitly
+- normalize the focused-neighborhood payload into the shared graph scene model
 
 ## Graph Interaction Rules
 
 - single select node highlights the selected item and updates graph context
 - activate node opens the corresponding note through the shared note-open path
 - graph scope changes reload layout through daemon calls
+- neighborhood scope may reuse vault-graph positions when a focused payload omits them
 - graph rendering style does not need to match Tauri pixel-for-pixel
+- reset returns to vault scope at depth `1` and clears the selected-node focus
 
 ## Test Cases
 

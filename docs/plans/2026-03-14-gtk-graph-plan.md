@@ -4,7 +4,7 @@
 
 **Goal:** deliver graph parity in GTK with vault/node scope, graph context details, and note activation from graph selection.
 
-**Architecture:** keep graph state isolated from editor internals, use backend-provided layout, and route graph context through the shell context panel rather than inventing a separate graph shell.
+**Architecture:** keep graph state isolated from editor internals, use backend-provided layout for the vault graph, normalize the daemon neighborhood payload into the same internal scene model, and route graph context through the shell context panel rather than inventing a separate graph shell.
 
 **Tech Stack:** Rust, gtk4, libadwaita, drawing/widget toolkit chosen by implementation, cargo test
 
@@ -55,6 +55,15 @@ pub struct GraphEdge {
 }
 ```
 
+### Focused neighborhood type
+
+```rust
+pub struct GraphNeighborhood {
+    pub nodes: Vec<String>,
+    pub edges: Vec<GraphEdge>,
+}
+```
+
 ### Graph request examples
 
 ```json
@@ -83,7 +92,7 @@ pub struct GraphEdge {
 2. graph view requests layout from daemon
 3. graph view renders nodes and edges
 4. selecting a node updates local graph selection state
-5. context panel optionally requests `graph_neighbors` details
+5. context panel derives selected-node details from the current normalized scene
 6. activating a node delegates back to shared note loading
 
 ## Task Summary
@@ -138,6 +147,7 @@ pub struct GraphEdge {
 
 - The graph view should not decide global shell routing rules.
 - It should only report events upward.
+- Focused-neighborhood payloads should be normalized before they reach rendering or context logic.
 
 ### Task GTG-002: Implement graph surface with backend layout data
 
@@ -198,6 +208,7 @@ pub enum GraphEvent {
 
 - The context panel should behave sensibly when nothing is selected.
 - Tests should cover both selected and unselected graph states.
+- Prefer deriving neighbors and backlinks from the normalized scene instead of inventing a second graph-details payload.
 
 ### Task GTG-005: Add scope switching, depth control, and reset
 
@@ -216,6 +227,7 @@ pub enum GraphEvent {
 
 - Keep scope and depth state in one model.
 - Avoid separate booleans like `is_node_scope` when an enum is clearer.
+- Reset should restore vault scope and depth `1`.
 
 ### Task GTG-006: Full verification and review fixes
 

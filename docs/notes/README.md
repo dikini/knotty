@@ -21,4 +21,5 @@ This directory stores per-subsystem notes about future opportunities discovered 
 - `explorer.md`: explorer tree and mutation follow-up opportunities
 - `editor.md`: editor follow-up opportunities and possible structured-edit refinements
 - `note-types.md`: note-type media/embed follow-up opportunities and renderer constraints
+- `graph.md`: graph rendering and neighborhood-layout follow-up opportunities
 - `client.md`: retained daemon-client surfaces owned by future graph and settings slices
