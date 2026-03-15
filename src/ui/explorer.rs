@@ -15,6 +15,7 @@ use tracing as log;
 
 use crate::client::{ExplorerFolderNode, ExplorerNoteNode, ExplorerTree, KnotdClient};
 use crate::ui::async_bridge;
+use crate::ui::note_types::note_type_indicator;
 
 const COL_ICON: u32 = 0;
 const COL_DISPLAY_NAME: u32 = 1;
@@ -82,18 +83,18 @@ impl ExplorerRowData {
     }
 
     fn from_note(note: &ExplorerNoteNode) -> Self {
-        let (icon_name, badge) = note_type_indicator(note.type_badge.as_deref());
-        let display_name = if badge.is_empty() {
+        let indicator = note_type_indicator(note.type_badge.as_deref());
+        let display_name = if indicator.badge.is_empty() {
             note.display_title.clone()
         } else {
-            format!("{}  [{}]", note.display_title, badge)
+            format!("{}  [{}]", note.display_title, indicator.badge)
         };
 
         Self {
-            icon_name,
+            icon_name: indicator.icon_name,
             display_name,
             path: note.path.clone(),
-            badge,
+            badge: indicator.badge,
             kind: ExplorerRowKind::Note,
         }
     }
@@ -140,20 +141,6 @@ struct ExplorerHandles {
 pub struct ExplorerView {
     widget: gtk::ScrolledWindow,
     handles: ExplorerHandles,
-}
-
-fn note_type_indicator(type_badge: Option<&str>) -> (String, String) {
-    let badge_lower = type_badge.map(str::to_lowercase);
-    match badge_lower.as_deref() {
-        Some("youtube") => ("video-x-generic".to_string(), "YT".to_string()),
-        Some("pdf") => ("application-pdf".to_string(), "PDF".to_string()),
-        Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp") | Some("svg") => {
-            ("image-x-generic".to_string(), String::new())
-        }
-        Some("image") => ("image-x-generic".to_string(), String::new()),
-        Some(other) => ("text-x-generic".to_string(), other.to_uppercase()),
-        None => ("text-x-markdown".to_string(), String::new()),
-    }
 }
 
 fn note_selection_request(row: &ExplorerRowData) -> Option<String> {
@@ -1051,6 +1038,32 @@ mod tests {
         assert_eq!(row.display_name, "Guide  [PDF]");
         assert_eq!(row.badge, "PDF");
         assert_eq!(row.kind, ExplorerRowKind::Note);
+
+        let image_row = ExplorerRowData::from_note(&ExplorerNoteNode {
+            path: "notes/screenshot.png".to_string(),
+            title: "Screenshot".to_string(),
+            display_title: "Screenshot".to_string(),
+            modified_at: 0,
+            word_count: 0,
+            type_badge: Some("image".to_string()),
+            is_dimmed: false,
+        });
+        assert_eq!(image_row.icon_name, "image-x-generic");
+        assert_eq!(image_row.display_name, "Screenshot");
+        assert!(image_row.badge.is_empty());
+
+        let youtube_row = ExplorerRowData::from_note(&ExplorerNoteNode {
+            path: "notes/video.md".to_string(),
+            title: "Video".to_string(),
+            display_title: "Video".to_string(),
+            modified_at: 0,
+            word_count: 0,
+            type_badge: Some("youtube".to_string()),
+            is_dimmed: false,
+        });
+        assert_eq!(youtube_row.icon_name, "video-x-generic");
+        assert_eq!(youtube_row.display_name, "Video  [YT]");
+        assert_eq!(youtube_row.badge, "YT");
     }
 
     #[test]

@@ -24,6 +24,9 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 - Add the approved GTK editor design note and tighten the editor implementation plan around source-authoritative synchronization, fixed icon-only mode controls, and pinned meta fields.
 - Add the GTK editor slice with fixed icon mode routing, source-authoritative dirty/save handling, dirty note-switch prompting, baseline markdown commands, and pinned-plus-generic metadata editing.
 - Add the GTK explorer slice with async tree refresh, mutation actions, dirty-state guard wiring, deterministic selection fallback, and explorer follow-up notes.
+- Add GTK note-type routing helpers plus image, PDF, YouTube, and embed view surfaces driven by note contract metadata, with shared explorer iconography and note-type follow-up notes.
+- Narrow GTK PDF handling to a system-viewer fallback and keep note-type view cards aligned with the current source/frontmatter state instead of stale loaded-note metadata.
+- Fix note-type routing so missing `note_type` can still use contract payload hints from `type_badge`, `embed`, and `media` without falling back to markdown surfaces.
 - Fix explorer review follow-ups so empty tree selection no longer suppresses the next note activation, folder removal clears stale active-note state, and cleared note loads reset back to an idle request state.
 - Restore explicit regression coverage for note-load cancellation after rebasing the explorer review fixes.
 - Add a dedicated GTK deprecations modernization spec, design note, and implementation plan so deprecated GTK/libadwaita API migration can be prioritized as an explicit slice.
