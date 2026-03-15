@@ -4,6 +4,10 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ## Unreleased
 
+### Fixed
+
+- Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.
+
 ### Added
 
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.
