@@ -4,6 +4,8 @@
 
 Concrete handoff note for `knotd` integration against the GTK semantic automation surface.
 
+Live `knotd` IPC/RPC transport remains out of scope for this slice. The current branch exposes and verifies the GTK-side contract plus mocked daemon-style transport coverage.
+
 ## Gate Rules
 
 Automation is available only when both are true:
@@ -145,3 +147,4 @@ knot-gtk --enable-automation --automation-token <TOKEN>
 - Dirty-note behavior is intentional:
   - automation does not bypass note-switch guards
   - blocked note-changing actions return `dirty_guard_blocked`
+- Before wiring live transport, validate daemon-side envelopes against the mocked protocol harness in `tests/automation_protocol.rs`.

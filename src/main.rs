@@ -1,26 +1,15 @@
 use gtk::prelude::*;
 use libadwaita::prelude::*;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 
-mod cli;
-mod client;
-mod config;
-mod runtime_contract;
-mod ui;
-
-use cli::CliArgs;
-use client::KnotdClient;
-use ui::automation_controller;
-use ui::window::KnotWindow;
-
-// Global socket path storage
-use std::sync::OnceLock;
-pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
-pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-pub static AUTOMATION_RUNTIME_ENABLED: OnceLock<bool> = OnceLock::new();
-pub static AUTOMATION_RUNTIME_TOKEN: OnceLock<Option<String>> = OnceLock::new();
+use knot_gtk::cli::CliArgs;
+use knot_gtk::client::KnotdClient;
+use knot_gtk::ui::automation_controller;
+use knot_gtk::ui::window::KnotWindow;
+use knot_gtk::{
+    AUTOMATION_RUNTIME_ENABLED, AUTOMATION_RUNTIME_TOKEN, BACKGROUND_RUNTIME, SOCKET_PATH,
+};
 
 thread_local! {
     static MAIN_WINDOW: RefCell<Option<Rc<KnotWindow>>> = const { RefCell::new(None) };
@@ -120,12 +109,6 @@ fn main() -> anyhow::Result<()> {
             let window = Rc::new(KnotWindow::with_client(app, client));
             window.present();
             automation_controller::register_window(&window);
-            let automation_api = automation_controller::protocol_api();
-            let _ = (
-                automation_api.describe,
-                automation_api.snapshot,
-                automation_api.dispatch,
-            );
             *slot = Some(window);
         });
     });

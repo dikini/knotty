@@ -2,6 +2,7 @@
 
 pub mod async_bridge;
 pub mod automation_controller;
+pub mod automation_protocol;
 pub mod automation_state;
 pub mod context_panel;
 pub mod editor;

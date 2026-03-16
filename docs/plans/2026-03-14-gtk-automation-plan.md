@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** add a gated, daemon-mediated semantic automation surface to `knot-gtk`, plus parity harnesses and review artifacts that use the same automation contract.
+**Goal:** add a gated, daemon-consumable semantic automation contract to `knot-gtk`, plus mocked transport harnesses, parity tests, and review artifacts that use the same automation contract.
 
-**Architecture:** project existing shell/editor/graph/settings state into a serializable automation snapshot, dispatch typed semantic UI actions through one controller on the GTK main thread, expose discovery metadata for `knotd`, and build parity tests/docs on that same layer rather than scraping widget internals.
+**Architecture:** project existing shell/editor/graph/settings state into a serializable automation snapshot, dispatch typed semantic UI actions through one controller on the GTK main thread, expose discovery metadata suitable for later `knotd` consumption, and build parity tests/docs on that same layer rather than scraping widget internals.
 
 **Tech Stack:** Rust, gtk4, libadwaita, serde, cargo test, cargo clippy, parity review docs
 
@@ -20,7 +20,8 @@
 
 ## Delivery Notes
 
-- The protocol must be explicit enough to drive a later `knotd` implementation without guessing argument/result shapes.
+- The protocol must be explicit enough to drive later `knotd` implementation without guessing argument/result shapes.
+- Live `knotd` IPC/RPC wiring is out of scope for this slice; use mocked daemon-style callers instead.
 - Automation must stay disabled unless both local config opt-in and runtime token/flag are present.
 - Tests should assert semantic state and action results, not GTK child ordering or labels that are only presentation.
 
@@ -76,7 +77,7 @@
 
 | Small ID | Parent | Action | Primary Files | Do Not Touch |
 |---|---|---|---|---|
-| GTA-001A | GTA-001 | Update spec for gated daemon-mediated automation | `docs/specs/component/gtk-automation-008.md` | code files |
+| GTA-001A | GTA-001 | Update spec for gated daemon-consumable automation | `docs/specs/component/gtk-automation-008.md` | code files |
 | GTA-001B | GTA-001 | Expand automation reference with discovery/snapshot/action protocol | `docs/reference/automation-behavior.md` | code files |
 | GTA-001C | GTA-001 | Add design note and align changelog | `docs/plans/2026-03-15-gtk-automation-design.md`, `CHANGELOG.md` | code files |
 | GTA-002A | GTA-002 | Add failing config-path test for automation opt-in | `src/config/knotty_config.rs` | GTK UI files |
@@ -108,7 +109,7 @@
 - Modify: `/home/dikini/Projects/knot-gtk/CHANGELOG.md`
 
 **Steps**
-1. Write the approved gated daemon-mediated automation design into the spec.
+1. Write the approved gated daemon-consumable automation design into the spec.
 2. Add protocol details for discovery, snapshot shape, actions, and result codes in the reference.
 3. Save the design note so implementation decisions stay frozen.
 4. Re-read the protocol docs and remove any vague or inferred-only behavior.

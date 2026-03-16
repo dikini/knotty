@@ -445,6 +445,12 @@ impl GraphView {
     }
 }
 
+impl Default for GraphView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

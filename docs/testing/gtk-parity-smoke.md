@@ -4,6 +4,12 @@
 
 Manual smoke checklist for the gated semantic automation surface in `knot-gtk`.
 
+For the mocked transport parity harness that does not require live daemon transport, run:
+
+```bash
+cargo test --test automation_protocol
+```
+
 ## Preconditions
 
 - `knotd` is running and a vault is open.
@@ -98,3 +104,11 @@ knot-gtk --enable-automation --automation-token dev-token
 - In both disabled cases:
   - action dispatch returns `automation_disabled`
   - normal UI use still works
+
+## Mocked Transport Coverage
+
+- The integration harness in `tests/automation_protocol.rs` covers:
+  - startup gating and tool switching
+  - note selection, editor mode changes, and dirty-guard blocking
+  - settings-section and graph-scope/depth actions
+- These tests exercise the same semantic discovery/snapshot/action protocol without requiring live `knotd` IPC/RPC wiring.
