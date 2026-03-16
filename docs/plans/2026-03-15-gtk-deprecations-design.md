@@ -4,7 +4,7 @@
 Restore GTK/libadwaita deprecation warnings as a reliable maintenance signal by removing deprecated API usage from repository code and documenting a project rule against introducing new deprecated APIs.
 
 ## Problem
-`knot-gtk` currently emits GTK deprecation warnings during normal verification, with explorer tree widgets as the largest source. That creates two problems:
+`knotty` currently emits GTK deprecation warnings during normal verification, with explorer tree widgets as the largest source. That creates two problems:
 
 1. real warnings are buried under known noise
 2. new work can keep landing on deprecated APIs because the warning stream is already normalized

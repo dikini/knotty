@@ -19,7 +19,7 @@ pub const fn default_socket_help() -> &'static str {
 
 pub fn missing_socket_path_message() -> String {
     format!(
-        "No socket path configured. Pass --socket, set KNOTD_SOCKET_PATH, or set XDG_RUNTIME_DIR so knot-gtk can use {}",
+        "No socket path configured. Pass --socket, set KNOTD_SOCKET_PATH, or set XDG_RUNTIME_DIR so knotty can use {}",
         default_socket_help()
     )
 }

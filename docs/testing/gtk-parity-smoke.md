@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Manual smoke checklist for the gated semantic automation surface in `knot-gtk`.
+Manual smoke checklist for the gated semantic automation surface in `knotty`.
 
 For the mocked transport parity harness that does not require live daemon transport, run:
 
@@ -20,16 +20,16 @@ cargo test --test automation_protocol
 enabled = true
 ```
 
-- `knot-gtk` is started with:
+- `knotty` is started with:
 
 ```bash
-knot-gtk --enable-automation --automation-token dev-token
+knotty --enable-automation --automation-token dev-token
 ```
 
 ## Expected Startup Signals
 
 - Header shows `Automation active`.
-- `knot-gtk` reaches `VaultOpen`.
+- `knotty` reaches `VaultOpen`.
 - Search, graph, settings, and editor surfaces remain usable without automation attached.
 
 ## Discovery Smoke

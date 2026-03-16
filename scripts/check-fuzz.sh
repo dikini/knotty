@@ -67,6 +67,12 @@ fi
 
 case "$backend" in
   cargo-fuzz)
+    pushd "$ROOT/fuzz" >/dev/null
+    cleanup_cargo_fuzz_dir() {
+      popd >/dev/null
+    }
+    trap cleanup_cargo_fuzz_dir RETURN
+
     if ! cargo fuzz --help >/dev/null 2>&1; then
       echo "check-fuzz: cargo-fuzz harness detected but cargo-fuzz is not installed" >&2
       exit 1

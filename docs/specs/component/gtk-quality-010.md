@@ -13,7 +13,7 @@
 
 ## Purpose
 
-Arrive at a clean enough `knot-gtk` codebase that compile and lint output are trustworthy again, dead or stale code no longer obscures active behavior, and the remaining feature slices can be developed on a substantially cleaner foundation.
+Arrive at a clean enough `knotty` codebase that compile and lint output are trustworthy again, dead or stale code no longer obscures active behavior, and the remaining feature slices can be developed on a substantially cleaner foundation.
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-//! Command line argument parsing for knot-gtk
+//! Command line argument parsing for knotty
 
 use std::path::PathBuf;
 
@@ -55,7 +55,7 @@ impl CliArgs {
                     std::process::exit(0);
                 }
                 "--version" | "-V" => {
-                    println!("knot-gtk {}", env!("CARGO_PKG_VERSION"));
+                    println!("knotty {}", env!("CARGO_PKG_VERSION"));
                     std::process::exit(0);
                 }
                 _ => {
@@ -90,9 +90,9 @@ impl CliArgs {
     }
 
     fn print_help() {
-        println!("knot-gtk - GTK4 frontend for Knot knowledge base");
+        println!("knotty - GTK4 frontend for Knot knowledge base");
         println!();
-        println!("Usage: knot-gtk [OPTIONS]");
+        println!("Usage: knotty [OPTIONS]");
         println!();
         println!("Options:");
         println!("  -s, --socket <PATH>    Path to knotd Unix socket");
@@ -121,6 +121,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn package_name_uses_knotty_branding() {
+        assert_eq!(env!("CARGO_PKG_NAME"), "knotty");
+    }
+
+    #[test]
     fn test_default_socket_path() {
         // Save original env var
         let original = std::env::var("XDG_RUNTIME_DIR").ok();
@@ -147,7 +152,7 @@ mod tests {
         std::env::set_var("XDG_RUNTIME_DIR", "/tmp/test-runtime");
 
         let args = CliArgs::parse_from([
-            "knot-gtk",
+            "knotty",
             "--socket",
             "/tmp/test-runtime/knot/knotd.sock",
             "--enable-automation",

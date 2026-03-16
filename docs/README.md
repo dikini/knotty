@@ -1,6 +1,6 @@
-# knot-gtk Docs
+# knotty Docs
 
-This directory tracks the design and planning work required to bring `knot-gtk` to functional parity with the Tauri UI in the upstream `knot` project, using GTK-native delivery slices.
+This directory tracks the design and planning work required to bring `knotty` to functional parity with the Tauri UI in the upstream `knot` project, using GTK-native delivery slices.
 
 ## Structure
 

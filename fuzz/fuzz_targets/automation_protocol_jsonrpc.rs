@@ -1,8 +1,8 @@
 #![no_main]
 
-use knot_gtk::ui::automation_controller::{clear_registration, register_protocol_api, UiAutomationApi};
-use knot_gtk::ui::automation_protocol::handle_registered_ui_automation_jsonrpc;
-use knot_gtk::ui::automation_state::{
+use knotty::ui::automation_controller::{clear_registration, register_protocol_api, UiAutomationApi};
+use knotty::ui::automation_protocol::handle_registered_ui_automation_jsonrpc;
+use knotty::ui::automation_state::{
     UiAutomationAction, UiAutomationActionResult, UiAutomationDescription, UiAutomationSnapshot,
 };
 use libfuzzer_sys::fuzz_target;

@@ -18,7 +18,7 @@ Add repository-local git gate scripts and hooks that:
 
 ## Context
 
-`knot-gtk` currently has no local gate script suite, no hook installer, and no clear repository policy for staged documentation evidence. Neighboring repositories `../sharo` and `../rarag` use a script-first approach:
+`knotty` currently has no local gate script suite, no hook installer, and no clear repository policy for staged documentation evidence. Neighboring repositories `../sharo` and `../rarag` use a script-first approach:
 
 - `scripts/check-*.sh` for focused checks
 - one composite fast gate

@@ -8,7 +8,7 @@
 - Updated: `2026-03-14`
 
 ## Purpose
-Define the delivery order for bringing `knot-gtk` to functional parity with the Tauri UI while minimizing cross-cutting work and merge conflicts.
+Define the delivery order for bringing `knotty` to functional parity with the Tauri UI while minimizing cross-cutting work and merge conflicts.
 
 ## Delivery Strategy
 

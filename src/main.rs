@@ -3,11 +3,11 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use knot_gtk::cli::CliArgs;
-use knot_gtk::client::KnotdClient;
-use knot_gtk::ui::automation_controller;
-use knot_gtk::ui::window::KnotWindow;
-use knot_gtk::{
+use knotty::cli::CliArgs;
+use knotty::client::KnotdClient;
+use knotty::ui::automation_controller;
+use knotty::ui::window::KnotWindow;
+use knotty::{
     AUTOMATION_RUNTIME_ENABLED, AUTOMATION_RUNTIME_TOKEN, BACKGROUND_RUNTIME, SOCKET_PATH,
 };
 
@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     BACKGROUND_RUNTIME
         .set(
             tokio::runtime::Builder::new_multi_thread()
-                .thread_name("knot-gtk-bg")
+                .thread_name("knotty-bg")
                 .enable_all()
                 .build()?,
         )
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
 
     // Initialize tracing
     tracing_subscriber::fmt()
-        .with_env_filter("info,knot_gtk=debug")
+        .with_env_filter("info,knotty=debug")
         .init();
 
     tracing::info!("Using socket path: {}", args.socket_path.display());

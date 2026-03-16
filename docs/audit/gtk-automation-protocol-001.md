@@ -20,7 +20,7 @@ enabled = true
 2. Runtime startup includes:
 
 ```bash
-knot-gtk --enable-automation --automation-token <TOKEN>
+knotty --enable-automation --automation-token <TOKEN>
 ```
 
 ## Discovery Call

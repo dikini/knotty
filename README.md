@@ -8,7 +8,7 @@ This project uses the same daemon-backed architecture as Knot:
 
 ```
 ┌─────────────┐      Unix Socket/JSON-RPC      ┌─────────────┐
-│  knot-gtk   │  ◄──────────────────────────►  │   knotd     │
+│   knotty    │  ◄──────────────────────────►  │   knotd     │
 │  (GTK4 UI)  │                                │  (daemon)   │
 └─────────────┘                                └──────┬──────┘
                                                       │
@@ -18,7 +18,7 @@ This project uses the same daemon-backed architecture as Knot:
                                                └─────────────┘
 ```
 
-- **knot-gtk**: GTK4/libadwaita UI application
+- **knotty**: GTK4/libadwaita UI application
 - **knotd**: daemon process that handles vault operations, search, graph, and settings
 
 ## Prerequisites
@@ -47,7 +47,7 @@ knotd --vault /path/to/vault --listen-unix "$XDG_RUNTIME_DIR/knot/knotd.sock"
 
 2. Run the GTK4 UI:
 ```bash
-cd /path/to/knot-gtk
+cd /path/to/knotty
 cargo run
 ```
 
@@ -113,7 +113,7 @@ The GTK4 app integrates with knotd via JSON-RPC to provide:
 ## Project Structure
 
 ```
-knot-gtk/
+knotty/
 ├── Cargo.toml          # Dependencies
 ├── src/
 │   ├── main.rs         # Application entry point

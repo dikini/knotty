@@ -1,10 +1,10 @@
-use knot_gtk::ui::automation_controller::{
+use knotty::ui::automation_controller::{
     clear_registration, register_protocol_api, UiAutomationApi,
 };
-use knot_gtk::ui::automation_protocol::{
+use knotty::ui::automation_protocol::{
     handle_registered_ui_automation_jsonrpc, handle_registered_ui_automation_tool_call,
 };
-use knot_gtk::ui::automation_state::{
+use knotty::ui::automation_state::{
     UiAutomationAction, UiAutomationActionResult, UiAutomationDescription, UiAutomationSnapshot,
 };
 use serde_json::json;

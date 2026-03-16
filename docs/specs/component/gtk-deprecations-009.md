@@ -10,7 +10,7 @@
 - Updated: `2026-03-15`
 
 ## Purpose
-Remove deprecated GTK and libadwaita API usage from `knot-gtk`, keep future work off deprecated surfaces, and restore deprecation warnings as a meaningful maintenance signal instead of background noise.
+Remove deprecated GTK and libadwaita API usage from `knotty`, keep future work off deprecated surfaces, and restore deprecation warnings as a meaningful maintenance signal instead of background noise.
 
 ## Scope
 

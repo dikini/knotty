@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** add a gated, daemon-consumable semantic automation contract to `knot-gtk`, plus mocked transport harnesses, parity tests, and review artifacts that use the same automation contract.
+**Goal:** add a gated, daemon-consumable semantic automation contract to `knotty`, plus mocked transport harnesses, parity tests, and review artifacts that use the same automation contract.
 
 **Architecture:** project existing shell/editor/graph/settings state into a serializable automation snapshot, dispatch typed semantic UI actions through one controller on the GTK main thread, expose discovery metadata suitable for later `knotd` consumption, and build parity tests/docs on that same layer rather than scraping widget internals.
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the gated semantic automation and parity verification surface expected from `knot-gtk`.
+Define the gated semantic automation and parity verification surface expected from `knotty`.
 
 ## Automation Goal
 

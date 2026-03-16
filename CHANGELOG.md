@@ -16,11 +16,13 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Changed
 
+- rename the official GTK project identity from `knot-gtk`/`knot_gtk` to `knotty`, including the Cargo package, produced binary, crate imports, and current user-facing docs
 - added stable automation widget identifiers for the main shell surfaces and a visible automation-active indicator in the window header
 - extended stable automation widget identifiers to include the inspector rail and switched the binary to consume the shared library automation surface
 
 ### Fixed
 
+- run the local cargo-fuzz gate from `fuzz/` so the pinned nightly toolchain is applied during pre-commit and full-gate verification
 - Align the GTK automation contract with the implemented startup gate by dropping the dead `invalid_token` result code from the published protocol and correcting the mocked parity snapshot to use the real `note.path` property key.
 - Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
 - Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.

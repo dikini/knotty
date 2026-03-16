@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** add local pre-commit and full-check gate scripts, hook wiring, and documentation-evidence enforcement for `knot-gtk`.
+**Goal:** add local pre-commit and full-check gate scripts, hook wiring, and documentation-evidence enforcement for `knotty`.
 
 **Architecture:** follow the script-first gate style used in neighboring repositories: small focused `scripts/check-*.sh` helpers, one composite pre-commit gate, one composite full gate, and repo-local `.githooks/` entrypoints. Keep each script narrow and testable, and operate on staged files for documentation-evidence policy.
 

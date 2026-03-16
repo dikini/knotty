@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the transport and message framing used by `knot-gtk` to communicate with `knotd`.
+Define the transport and message framing used by `knotty` to communicate with `knotd`.
 
 ## Transport
 

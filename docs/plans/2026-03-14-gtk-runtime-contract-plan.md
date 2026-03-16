@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** align `knot-gtk` contracts and execution flow with parity needs so later UI slices can build on stable async data access.
+**Goal:** align `knotty` contracts and execution flow with parity needs so later UI slices can build on stable async data access.
 
-**Architecture:** keep `knot-gtk` as a daemon-backed GTK frontend, but add a small async/request-state layer between UI callbacks and daemon RPC. Expand client DTOs to match needed parity fields before feature slices depend on them.
+**Architecture:** keep `knotty` as a daemon-backed GTK frontend, but add a small async/request-state layer between UI callbacks and daemon RPC. Expand client DTOs to match needed parity fields before feature slices depend on them.
 
 **Tech Stack:** Rust, gtk4, libadwaita, glib main-context messaging, tokio/background tasks, cargo test
 
