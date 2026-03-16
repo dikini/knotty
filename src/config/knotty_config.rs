@@ -32,9 +32,17 @@ impl Default for AppearancePreferences {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AutomationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct KnottyConfig {
     #[serde(default)]
     pub appearance: AppearancePreferences,
+    #[serde(default)]
+    pub automation: AutomationConfig,
 }
 
 pub fn default_context_panel_width() -> i32 {
@@ -126,5 +134,23 @@ mod tests {
             path,
             std::path::PathBuf::from("/tmp/home/.config/knot/knotty.toml")
         );
+    }
+
+    #[test]
+    fn knotty_config_round_trips_automation_opt_in() {
+        let path = std::env::temp_dir().join(format!(
+            "knotty-config-automation-{}.toml",
+            std::process::id()
+        ));
+        let config = KnottyConfig {
+            appearance: AppearancePreferences::default(),
+            automation: AutomationConfig { enabled: true },
+        };
+
+        save_knotty_config_to_path(&config, &path).expect("config should save");
+        let loaded = load_knotty_config_from_path(&path).expect("config should load");
+
+        assert!(loaded.automation.enabled);
+        let _ = std::fs::remove_file(path);
     }
 }

@@ -342,6 +342,7 @@ impl GraphView {
             .margin_start(12)
             .margin_end(12)
             .build();
+        widget.set_widget_name("knot.content.graph");
 
         let status_label = gtk::Label::builder()
             .label("Graph is idle")
@@ -355,6 +356,7 @@ impl GraphView {
             .hexpand(true)
             .vexpand(true)
             .build();
+        drawing_area.set_widget_name("knot.graph.canvas");
         let scrolled = gtk::ScrolledWindow::builder()
             .hexpand(true)
             .vexpand(true)
@@ -440,6 +442,12 @@ impl GraphView {
         F: Fn(&str) + 'static,
     {
         *self.on_node_activated.borrow_mut() = Some(Box::new(f));
+    }
+}
+
+impl Default for GraphView {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -240,6 +240,7 @@ impl NoteEditor {
             .orientation(gtk::Orientation::Vertical)
             .spacing(0)
             .build();
+        widget.set_widget_name("knot.content.editor");
 
         widget.add_css_class("card");
 
@@ -733,6 +734,24 @@ impl NoteEditor {
 
     pub fn is_modified(&self) -> bool {
         self.document_state.borrow().is_modified()
+    }
+
+    pub fn current_mode(&self) -> EditorMode {
+        *self.current_mode.borrow()
+    }
+
+    pub fn select_mode(&self, mode: EditorMode) -> bool {
+        let available = match mode {
+            EditorMode::Meta => self.meta_button.is_sensitive(),
+            EditorMode::Source => self.source_button.is_sensitive(),
+            EditorMode::Edit => self.edit_button.is_sensitive(),
+            EditorMode::View => self.view_button.is_sensitive(),
+        };
+        if !available {
+            return false;
+        }
+        self.set_mode(mode);
+        true
     }
 
     pub fn current_title(&self) -> String {

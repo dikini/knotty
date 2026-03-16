@@ -31,6 +31,7 @@ impl ToolRail {
             .css_name("tool-rail")
             .width_request(56)
             .build();
+        widget.set_widget_name("knot.tool-rail");
 
         // Tools section
         let tools_box = gtk::Box::builder()

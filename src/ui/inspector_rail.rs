@@ -2,6 +2,9 @@ use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+const INSPECTOR_RAIL_WIDGET_NAME: &str = "knot.inspector-rail";
+const INSPECTOR_CLOSE_WIDGET_NAME: &str = "knot.inspector-close";
+
 type CloseCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
 #[derive(Clone)]
@@ -20,6 +23,7 @@ impl InspectorRail {
             .css_name("inspector-rail")
             .width_request(280)
             .build();
+        widget.set_widget_name(INSPECTOR_RAIL_WIDGET_NAME);
 
         // Header
         let header = gtk::Box::builder()
@@ -41,6 +45,7 @@ impl InspectorRail {
             .icon_name("window-close-symbolic")
             .css_classes(vec!["flat".to_string(), "circular".to_string()])
             .build();
+        close_btn.set_widget_name(INSPECTOR_CLOSE_WIDGET_NAME);
 
         header.append(&title_label);
         header.append(&close_btn);
@@ -118,5 +123,16 @@ impl InspectorRail {
 impl Default for InspectorRail {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inspector_rail_exposes_stable_widget_identifier() {
+        assert_eq!(INSPECTOR_RAIL_WIDGET_NAME, "knot.inspector-rail");
+        assert_eq!(INSPECTOR_CLOSE_WIDGET_NAME, "knot.inspector-close");
     }
 }

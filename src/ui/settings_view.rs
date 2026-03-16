@@ -27,6 +27,14 @@ struct PluginWidgets {
     status_label: gtk::Label,
 }
 
+#[derive(Clone)]
+struct AppearanceWidgets {
+    color_scheme_dropdown: gtk::DropDown,
+    context_width_spin: gtk::SpinButton,
+    inspector_width_spin: gtk::SpinButton,
+    status_label: gtk::Label,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VaultSettingsForm {
     file_visibility: String,
@@ -99,8 +107,11 @@ impl SettingsView {
             .hexpand(true)
             .vexpand(true)
             .build();
+        widget.set_widget_name("knot.content.settings");
         let stack = gtk::Stack::builder().hexpand(true).vexpand(true).build();
+        stack.set_widget_name("knot.settings.stack");
         let on_preferences_changed: PreferencesChangedCallback = Rc::new(RefCell::new(None));
+        let current_config = Rc::new(RefCell::new(initial_config.clone()));
 
         let general_page = section_page(SettingsSection::General);
         general_page.append(
@@ -239,10 +250,13 @@ impl SettingsView {
 
         wire_appearance_actions(
             Rc::clone(&on_preferences_changed),
-            color_scheme_dropdown.clone(),
-            context_width_spin.clone(),
-            inspector_width_spin.clone(),
-            appearance_status.clone(),
+            Rc::clone(&current_config),
+            AppearanceWidgets {
+                color_scheme_dropdown: color_scheme_dropdown.clone(),
+                context_width_spin: context_width_spin.clone(),
+                inspector_width_spin: inspector_width_spin.clone(),
+                status_label: appearance_status.clone(),
+            },
             appearance_save_btn,
             appearance_reload_btn,
         );
@@ -427,6 +441,7 @@ fn apply_config_to_widgets(
 }
 
 fn gather_config_from_widgets(
+    existing_config: &KnottyConfig,
     color_scheme_dropdown: &gtk::DropDown,
     context_width_spin: &gtk::SpinButton,
     inspector_width_spin: &gtk::SpinButton,
@@ -436,13 +451,13 @@ fn gather_config_from_widgets(
         2 => ColorSchemePreference::Dark,
         _ => ColorSchemePreference::System,
     };
-    KnottyConfig {
-        appearance: crate::config::knotty_config::AppearancePreferences {
-            context_panel_width: context_width_spin.value_as_int(),
-            inspector_width: inspector_width_spin.value_as_int(),
-            color_scheme,
-        },
-    }
+    let mut config = existing_config.clone();
+    config.appearance = crate::config::knotty_config::AppearancePreferences {
+        context_panel_width: context_width_spin.value_as_int(),
+        inspector_width: inspector_width_spin.value_as_int(),
+        color_scheme,
+    };
+    config
 }
 
 fn apply_vault_settings_form(settings: &VaultSettings, widgets: &VaultWidgets) {
@@ -574,27 +589,27 @@ fn format_maintenance_result(result: &MaintenanceResult) -> String {
 
 fn wire_appearance_actions(
     on_preferences_changed: PreferencesChangedCallback,
-    color_scheme_dropdown: gtk::DropDown,
-    context_width_spin: gtk::SpinButton,
-    inspector_width_spin: gtk::SpinButton,
-    status_label: gtk::Label,
+    current_config: Rc<RefCell<KnottyConfig>>,
+    widgets: AppearanceWidgets,
     save_button: gtk::Button,
     reload_button: gtk::Button,
 ) {
-    let save_status_label = status_label.clone();
-    let save_color_scheme_dropdown = color_scheme_dropdown.clone();
-    let save_context_width_spin = context_width_spin.clone();
-    let save_inspector_width_spin = inspector_width_spin.clone();
+    let save_widgets = widgets.clone();
     let save_preferences_callback = Rc::clone(&on_preferences_changed);
+    let save_current_config = Rc::clone(&current_config);
     save_button.connect_clicked(move |_| {
-        save_status_label.set_label("Saving appearance preferences...");
+        save_widgets
+            .status_label
+            .set_label("Saving appearance preferences...");
         let config = gather_config_from_widgets(
-            &save_color_scheme_dropdown,
-            &save_context_width_spin,
-            &save_inspector_width_spin,
+            &save_current_config.borrow(),
+            &save_widgets.color_scheme_dropdown,
+            &save_widgets.context_width_spin,
+            &save_widgets.inspector_width_spin,
         );
-        let status_label = save_status_label.clone();
+        let status_label = save_widgets.status_label.clone();
         let on_preferences_changed = Rc::clone(&save_preferences_callback);
+        let save_current_config = Rc::clone(&save_current_config);
         async_bridge::run_background(move || {
             save_knotty_config(&config)?;
             Ok::<_, String>(config)
@@ -602,6 +617,7 @@ fn wire_appearance_actions(
         .attach_local(move |result| match result {
             Ok(config) => {
                 status_label.set_label("Saved appearance preferences.");
+                *save_current_config.borrow_mut() = config.clone();
                 if let Some(callback) = &*on_preferences_changed.borrow() {
                     callback(config);
                 }
@@ -613,18 +629,19 @@ fn wire_appearance_actions(
         });
     });
 
-    let reload_status_label = status_label.clone();
-    let reload_color_scheme_dropdown = color_scheme_dropdown.clone();
-    let reload_context_width_spin = context_width_spin.clone();
-    let reload_inspector_width_spin = inspector_width_spin.clone();
+    let reload_widgets = widgets.clone();
     let reload_preferences_callback = Rc::clone(&on_preferences_changed);
+    let reload_current_config = Rc::clone(&current_config);
     reload_button.connect_clicked(move |_| {
-        reload_status_label.set_label("Reloading appearance preferences...");
-        let status_label = reload_status_label.clone();
-        let color_scheme_dropdown = reload_color_scheme_dropdown.clone();
-        let context_width_spin = reload_context_width_spin.clone();
-        let inspector_width_spin = reload_inspector_width_spin.clone();
+        reload_widgets
+            .status_label
+            .set_label("Reloading appearance preferences...");
+        let status_label = reload_widgets.status_label.clone();
+        let color_scheme_dropdown = reload_widgets.color_scheme_dropdown.clone();
+        let context_width_spin = reload_widgets.context_width_spin.clone();
+        let inspector_width_spin = reload_widgets.inspector_width_spin.clone();
         let on_preferences_changed = Rc::clone(&reload_preferences_callback);
+        let reload_current_config = Rc::clone(&reload_current_config);
         async_bridge::run_background(load_knotty_config).attach_local(move |result| match result {
             Ok(config) => {
                 apply_config_to_widgets(
@@ -633,6 +650,7 @@ fn wire_appearance_actions(
                     &context_width_spin,
                     &inspector_width_spin,
                 );
+                *reload_current_config.borrow_mut() = config.clone();
                 status_label.set_label("Reloaded appearance preferences.");
                 if let Some(callback) = &*on_preferences_changed.borrow() {
                     callback(config);
@@ -878,5 +896,25 @@ mod tests {
             format_maintenance_result(&MaintenanceResult::Count(42)),
             "Reindexed 42 items"
         );
+    }
+
+    #[test]
+    fn gather_config_from_widgets_preserves_existing_automation_settings() {
+        gtk::init().ok();
+        let dropdown = gtk::DropDown::from_strings(&["Follow system", "Light", "Dark"]);
+        dropdown.set_selected(2);
+        let context = spin_button(320, 220, 480, 4);
+        let inspector = spin_button(300, 220, 480, 4);
+        let existing = KnottyConfig {
+            automation: crate::config::knotty_config::AutomationConfig { enabled: true },
+            ..KnottyConfig::default()
+        };
+
+        let config = gather_config_from_widgets(&existing, &dropdown, &context, &inspector);
+
+        assert!(config.automation.enabled);
+        assert_eq!(config.appearance.color_scheme, ColorSchemePreference::Dark);
+        assert_eq!(config.appearance.context_panel_width, 320);
+        assert_eq!(config.appearance.inspector_width, 300);
     }
 }

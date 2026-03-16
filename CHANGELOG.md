@@ -4,8 +4,24 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ## Unreleased
 
+### Added
+
+- gated GTK automation protocol types, controller registration, semantic snapshot projection, and action discovery scaffolding for the automation slice
+- a mockable GTK automation protocol adapter and integration tests so daemon-style callers can query discovery, snapshots, and semantic action dispatch without widget scraping
+- stateful parity integration tests for startup/tool routing, note/editor dirty-guard flows, and settings/graph automation coverage through the mocked protocol surface
+- JSON-RPC envelope coverage for the registered GTK automation entrypoint so daemon-style tool calls can be exercised without a live `knotd`
+- a `cargo-fuzz` harness for the GTK automation JSON-RPC entrypoint so malformed or adversarial tool-call envelopes can be tested without daemon access
+- a fuzz-local nightly toolchain pin so `cargo-fuzz` can run without moving the main crate off stable Rust
+- GTK automation smoke-check and knotd handoff docs for the semantic automation protocol
+
+### Changed
+
+- added stable automation widget identifiers for the main shell surfaces and a visible automation-active indicator in the window header
+- extended stable automation widget identifiers to include the inspector rail and switched the binary to consume the shared library automation surface
+
 ### Fixed
 
+- Align the GTK automation contract with the implemented startup gate by dropping the dead `invalid_token` result code from the published protocol and correcting the mocked parity snapshot to use the real `note.path` property key.
 - Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
 - Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.
 - Centralize the GTK socket runtime contract so the CLI, client defaults, tests, and README all use the canonical `.../knot/knotd.sock` path.
@@ -19,6 +35,12 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Added
 
+- Add the GTK automation design note and tighten the automation spec/plan/reference around a gated daemon-consumable protocol with discovery, semantic snapshots, semantic actions, stable result codes, and mocked transport coverage for later `knotd` integration.
+- Add the first GTK automation gate layer with `automation.enabled` in `knotty.toml`, runtime CLI automation flags/token parsing, and startup wiring that keeps automation disabled unless the session gate is explicitly satisfied.
+
+### Fixed
+
+- Preserve the local automation config section when saving unrelated appearance preferences so enabling automation is not lost by later UI preference edits.
 - Add the GTK settings slice with left-pane section navigation, hidden inspector behavior in settings mode, daemon-backed vault/plugin/maintenance sections, local app-preference persistence in `~/.config/knot/knotty.toml`, and a settings follow-up note file.
 - Add the GTK settings design note and tighten the settings spec/plan around left-pane section navigation, hidden inspector behavior, the `Controls` section, and `~/.config/knot/knotty.toml` as the app-preferences store.
 - Add GTK parity specs, plans, local reference bundle, and repository gate scripts.

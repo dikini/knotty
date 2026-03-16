@@ -1,13 +1,18 @@
 use gtk::prelude::*;
 use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::client::{GraphLayout, KnotdClient, NoteData};
 use crate::config::knotty_config::{load_knotty_config, ColorSchemePreference, KnottyConfig};
 use crate::ui::async_bridge;
+use crate::ui::automation_state::{
+    UiAutomationAction, UiAutomationActionDescription, UiAutomationActionResult,
+    UiAutomationDescription, UiAutomationSnapshot,
+};
 use crate::ui::context_panel::{ContextPanel, GraphPanelEvent, GraphPanelState};
-use crate::ui::editor::NoteEditor;
+use crate::ui::editor::{EditorMode, NoteEditor};
 use crate::ui::explorer::NoteSwitchDecision;
 use crate::ui::graph_view::{
     graph_context_details, normalize_neighborhood_layout, normalize_vault_layout, GraphScene,
@@ -16,9 +21,10 @@ use crate::ui::graph_view::{
 use crate::ui::inspector_rail::InspectorRail;
 use crate::ui::request_state::RequestState;
 use crate::ui::search_view::SearchView;
-use crate::ui::settings_view::SettingsView;
+use crate::ui::settings_view::{SettingsSection, SettingsView};
 use crate::ui::shell_state::{InspectorMode, ShellState};
 use crate::ui::tool_rail::{ToolMode, ToolRail};
+use crate::{AUTOMATION_RUNTIME_ENABLED, AUTOMATION_RUNTIME_TOKEN};
 
 type NoteLoadState = RequestState<NoteData, String>;
 type NoteLoadResult = Result<NoteData, String>;
@@ -62,6 +68,7 @@ pub struct KnotWindow {
     context_panel: Rc<ContextPanel>,
     inspector_rail: InspectorRail,
     startup_state: Rc<RefCell<StartupState>>,
+    automation_indicator: gtk::Label,
     vault_label: gtk::Label,
     daemon_detail_label: gtk::Label,
     retry_startup_btn: gtk::Button,
@@ -76,6 +83,12 @@ pub struct KnotWindow {
     note_load_state: Rc<RefCell<NoteLoadState>>,
     note_load_generation: Rc<RefCell<u64>>,
     shell_state: Rc<RefCell<ShellState>>,
+    graph_scope: Rc<RefCell<GraphScope>>,
+    graph_depth: Rc<Cell<u32>>,
+    graph_selected_path: Rc<RefCell<Option<String>>>,
+    graph_vault_layout: Rc<RefCell<Option<GraphLayout>>>,
+    graph_current_scene: Rc<RefCell<GraphScene>>,
+    graph_request_generation: Rc<Cell<u64>>,
 }
 
 #[derive(Clone)]
@@ -725,7 +738,742 @@ fn cancel_note_load(
     *note_load_state.borrow_mut() = RequestState::idle();
 }
 
+const UI_AUTOMATION_PROTOCOL_VERSION: u32 = 1;
+const UI_AUTOMATION_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+const UI_AUTOMATION_ACTION_CATALOG_VERSION: u32 = 1;
+
+fn startup_state_name(state: &StartupState) -> &'static str {
+    match state {
+        StartupState::DaemonUnavailable { .. } => "daemon_unavailable",
+        StartupState::NoVault => "no_vault",
+        StartupState::VaultOpen { .. } => "vault_open",
+    }
+}
+
+fn tool_mode_name(mode: ToolMode) -> &'static str {
+    match mode {
+        ToolMode::Notes => "notes",
+        ToolMode::Search => "search",
+        ToolMode::Graph => "graph",
+        ToolMode::Settings => "settings",
+    }
+}
+
+fn editor_mode_name(mode: EditorMode) -> &'static str {
+    match mode {
+        EditorMode::Meta => "meta",
+        EditorMode::Source => "source",
+        EditorMode::Edit => "edit",
+        EditorMode::View => "view",
+    }
+}
+
+fn graph_scope_name(scope: GraphScope) -> &'static str {
+    match scope {
+        GraphScope::Vault => "vault",
+        GraphScope::Neighborhood => "neighborhood",
+    }
+}
+
+fn settings_section_name(section: SettingsSection) -> &'static str {
+    match section {
+        SettingsSection::General => "general",
+        SettingsSection::Appearance => "appearance",
+        SettingsSection::Controls => "controls",
+        SettingsSection::Vault => "vault",
+        SettingsSection::Plugins => "plugins",
+        SettingsSection::Maintenance => "maintenance",
+    }
+}
+
+fn parse_tool_mode(value: &str) -> Option<ToolMode> {
+    match value {
+        "notes" => Some(ToolMode::Notes),
+        "search" => Some(ToolMode::Search),
+        "graph" => Some(ToolMode::Graph),
+        "settings" => Some(ToolMode::Settings),
+        _ => None,
+    }
+}
+
+fn parse_editor_mode(value: &str) -> Option<EditorMode> {
+    match value {
+        "meta" => Some(EditorMode::Meta),
+        "source" => Some(EditorMode::Source),
+        "edit" => Some(EditorMode::Edit),
+        "view" => Some(EditorMode::View),
+        _ => None,
+    }
+}
+
+fn parse_graph_scope(value: &str) -> Option<GraphScope> {
+    match value {
+        "vault" => Some(GraphScope::Vault),
+        "neighborhood" => Some(GraphScope::Neighborhood),
+        _ => None,
+    }
+}
+
+fn parse_settings_section(value: &str) -> Option<SettingsSection> {
+    match value {
+        "general" => Some(SettingsSection::General),
+        "appearance" => Some(SettingsSection::Appearance),
+        "controls" => Some(SettingsSection::Controls),
+        "vault" => Some(SettingsSection::Vault),
+        "plugins" => Some(SettingsSection::Plugins),
+        "maintenance" => Some(SettingsSection::Maintenance),
+        _ => None,
+    }
+}
+
+fn automation_gate_state(
+    config_enabled: bool,
+    runtime_enabled: bool,
+    runtime_token: Option<&str>,
+) -> (bool, Option<&'static str>) {
+    if !config_enabled {
+        return (false, Some("config_opt_in_required"));
+    }
+    if !runtime_enabled || runtime_token.is_none() {
+        return (false, Some("runtime_token_required"));
+    }
+    (true, None)
+}
+
+fn automation_runtime_enabled() -> bool {
+    AUTOMATION_RUNTIME_ENABLED.get().copied().unwrap_or(false)
+}
+
+fn automation_runtime_token() -> Option<&'static str> {
+    AUTOMATION_RUNTIME_TOKEN
+        .get()
+        .and_then(|token| token.as_deref())
+}
+
+fn ui_automation_result_codes() -> Vec<String> {
+    [
+        "ok",
+        "automation_disabled",
+        "startup_blocked",
+        "dirty_guard_blocked",
+        "unsupported_context",
+        "not_found",
+        "invalid_arguments",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn ui_automation_action_catalog() -> Vec<UiAutomationActionDescription> {
+    vec![
+        UiAutomationActionDescription {
+            action_id: "switch_tool".to_string(),
+            title: "Switch Tool".to_string(),
+            description: "Switch the active shell tool.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["tool"],
+                "properties": {
+                    "tool": {
+                        "type": "string",
+                        "enum": ["notes", "search", "graph", "settings"]
+                    }
+                }
+            }),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "invalid_arguments".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "focus_search".to_string(),
+            title: "Focus Search".to_string(),
+            description: "Route to search and focus the query entry.".to_string(),
+            argument_schema: serde_json::json!({"type": "object", "properties": {}}),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "select_note".to_string(),
+            title: "Select Note".to_string(),
+            description: "Load the note at the given path and route to notes.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                    "path": {"type": "string"}
+                }
+            }),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "dirty_guard_blocked".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "clear_selection".to_string(),
+            title: "Clear Selection".to_string(),
+            description: "Clear the active note selection.".to_string(),
+            argument_schema: serde_json::json!({"type": "object", "properties": {}}),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "dirty_guard_blocked".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "set_editor_mode".to_string(),
+            title: "Set Editor Mode".to_string(),
+            description: "Switch the note editor to an available mode.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["mode"],
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["meta", "source", "edit", "view"]
+                    }
+                }
+            }),
+            preconditions: vec![
+                "startup.state == vault_open".to_string(),
+                "active_note_path != null".to_string(),
+            ],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "unsupported_context".to_string(),
+                "invalid_arguments".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "open_settings_section".to_string(),
+            title: "Open Settings Section".to_string(),
+            description: "Switch to settings and show the requested section.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["section"],
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "enum": ["general", "appearance", "controls", "vault", "plugins", "maintenance"]
+                    }
+                }
+            }),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "invalid_arguments".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "set_graph_scope".to_string(),
+            title: "Set Graph Scope".to_string(),
+            description: "Set the graph scope and refresh the graph surface.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["scope"],
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "enum": ["vault", "neighborhood"]
+                    }
+                }
+            }),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "invalid_arguments".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "set_graph_depth".to_string(),
+            title: "Set Graph Depth".to_string(),
+            description: "Set neighborhood graph depth and refresh when needed.".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["depth"],
+                "properties": {
+                    "depth": {"type": "integer", "minimum": 1, "maximum": 10}
+                }
+            }),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+                "invalid_arguments".to_string(),
+            ],
+        },
+        UiAutomationActionDescription {
+            action_id: "reset_graph".to_string(),
+            title: "Reset Graph".to_string(),
+            description: "Reset graph scope, depth, and selection to vault defaults.".to_string(),
+            argument_schema: serde_json::json!({"type": "object", "properties": {}}),
+            preconditions: vec!["startup.state == vault_open".to_string()],
+            result_codes: vec![
+                "ok".to_string(),
+                "automation_disabled".to_string(),
+                "startup_blocked".to_string(),
+            ],
+        },
+    ]
+}
+
+struct AutomationSnapshotInput {
+    active_tool: String,
+    active_content: String,
+    startup_state: String,
+    inspector_visible: bool,
+    active_note_path: Option<String>,
+    editor_mode: Option<String>,
+    editor_dirty: bool,
+    search_query: Option<String>,
+    graph_scope: Option<String>,
+    graph_depth: Option<u8>,
+    graph_selected_path: Option<String>,
+    settings_section: Option<String>,
+    automation_active: bool,
+}
+
+fn build_ui_automation_snapshot(input: AutomationSnapshotInput) -> UiAutomationSnapshot {
+    let mut properties = BTreeMap::new();
+    properties.insert("tool.active".to_string(), input.active_tool.clone());
+    properties.insert("content.active".to_string(), input.active_content.clone());
+    properties.insert("startup.state".to_string(), input.startup_state.clone());
+    properties.insert(
+        "inspector.visible".to_string(),
+        input.inspector_visible.to_string(),
+    );
+    properties.insert("editor.dirty".to_string(), input.editor_dirty.to_string());
+    properties.insert(
+        "automation.active".to_string(),
+        input.automation_active.to_string(),
+    );
+    if let Some(path) = input.active_note_path.as_deref() {
+        properties.insert("note.path".to_string(), path.to_string());
+    }
+    if let Some(mode) = input.editor_mode.as_deref() {
+        properties.insert("editor.mode".to_string(), mode.to_string());
+    }
+    if let Some(query) = input.search_query.as_deref() {
+        properties.insert("search.query".to_string(), query.to_string());
+    }
+    if let Some(scope) = input.graph_scope.as_deref() {
+        properties.insert("graph.scope".to_string(), scope.to_string());
+    }
+    if let Some(depth) = input.graph_depth {
+        properties.insert("graph.depth".to_string(), depth.to_string());
+    }
+    if let Some(path) = input.graph_selected_path.as_deref() {
+        properties.insert("graph.selected_path".to_string(), path.to_string());
+    }
+    if let Some(section) = input.settings_section.as_deref() {
+        properties.insert("settings.section".to_string(), section.to_string());
+    }
+
+    UiAutomationSnapshot {
+        active_tool: input.active_tool,
+        active_content: input.active_content,
+        startup_state: input.startup_state,
+        inspector_visible: input.inspector_visible,
+        active_note_path: input.active_note_path,
+        editor_mode: input.editor_mode,
+        editor_dirty: input.editor_dirty,
+        search_query: input.search_query,
+        graph_scope: input.graph_scope,
+        graph_depth: input.graph_depth,
+        graph_selected_path: input.graph_selected_path,
+        settings_section: input.settings_section,
+        automation_active: input.automation_active,
+        properties,
+    }
+}
+
 impl KnotWindow {
+    fn shell_ui_handles(&self) -> ShellUiHandles {
+        ShellUiHandles {
+            shell_state: Rc::clone(&self.shell_state),
+            tool_rail: self.tool_rail.clone(),
+            context_panel: Rc::clone(&self.context_panel),
+            content_stack: self.content_stack.clone(),
+            inspector_rail: self.inspector_rail.clone(),
+            search_view: Rc::clone(&self.search_view),
+        }
+    }
+
+    fn note_session_handles(&self) -> NoteSessionHandles {
+        NoteSessionHandles {
+            window: self.window.clone(),
+            editor: Rc::clone(&self.editor),
+            current_note: Rc::clone(&self.current_note),
+            note_load_state: Rc::clone(&self.note_load_state),
+            note_load_generation: Rc::clone(&self.note_load_generation),
+            shell_ui: self.shell_ui_handles(),
+        }
+    }
+
+    fn graph_session_handles(&self) -> GraphSessionHandles {
+        GraphSessionHandles {
+            client: Rc::clone(&self.client),
+            graph_view: Rc::clone(&self.graph_view),
+            context_panel: Rc::clone(&self.context_panel),
+            scope: Rc::clone(&self.graph_scope),
+            depth: Rc::clone(&self.graph_depth),
+            selected_path: Rc::clone(&self.graph_selected_path),
+            vault_layout: Rc::clone(&self.graph_vault_layout),
+            current_scene: Rc::clone(&self.graph_current_scene),
+            request_generation: Rc::clone(&self.graph_request_generation),
+        }
+    }
+
+    fn automation_gate(&self) -> (bool, Option<&'static str>) {
+        let config_enabled = load_knotty_config()
+            .map(|config| config.automation.enabled)
+            .unwrap_or(false);
+        let runtime_enabled = automation_runtime_enabled();
+        let runtime_token = automation_runtime_token();
+        automation_gate_state(config_enabled, runtime_enabled, runtime_token)
+    }
+
+    fn automation_result(
+        &self,
+        action_id: &str,
+        ok: bool,
+        result_code: &str,
+        message: Option<String>,
+    ) -> UiAutomationActionResult {
+        UiAutomationActionResult {
+            action_id: action_id.to_string(),
+            ok,
+            result_code: result_code.to_string(),
+            message,
+            snapshot: ok.then(|| self.ui_automation_snapshot()),
+        }
+    }
+
+    pub fn describe_ui_automation(&self) -> UiAutomationDescription {
+        let (available, unavailable_reason) = self.automation_gate();
+        UiAutomationDescription {
+            protocol_version: UI_AUTOMATION_PROTOCOL_VERSION,
+            snapshot_schema_version: UI_AUTOMATION_SNAPSHOT_SCHEMA_VERSION,
+            action_catalog_version: UI_AUTOMATION_ACTION_CATALOG_VERSION,
+            available,
+            unavailable_reason: unavailable_reason.map(str::to_string),
+            requires_config_opt_in: true,
+            requires_runtime_token: true,
+            actions: ui_automation_action_catalog(),
+            result_codes: ui_automation_result_codes(),
+        }
+    }
+
+    pub fn ui_automation_snapshot(&self) -> UiAutomationSnapshot {
+        let shell_state = self.shell_state.borrow();
+        let startup_state = self.startup_state.borrow();
+        let active_tool = tool_mode_name(shell_state.tool_mode()).to_string();
+        let active_content = content_child_name_for_shell(&shell_state).to_string();
+        let startup_state_name = startup_state_name(&startup_state).to_string();
+        let active_note_path = self
+            .current_note
+            .borrow()
+            .as_ref()
+            .map(|note| note.path.clone());
+        let settings_section = matches!(shell_state.tool_mode(), ToolMode::Settings)
+            .then(|| settings_section_name(self.settings_view.selected_section()).to_string());
+        let graph_scope = Some(graph_scope_name(*self.graph_scope.borrow()).to_string());
+        let graph_depth = Some(self.graph_depth.get() as u8);
+        let graph_selected_path = self.graph_selected_path.borrow().clone();
+        let editor_mode = active_note_path
+            .as_ref()
+            .map(|_| editor_mode_name(self.editor.current_mode()).to_string());
+        let editor_dirty = self.editor.is_modified();
+        let search_query = self.search_view.query();
+        let automation_active = self.automation_gate().0;
+        let inspector_visible = matches!(shell_state.inspector_mode(), InspectorMode::Details)
+            && self.inspector_rail.widget().is_visible();
+
+        build_ui_automation_snapshot(AutomationSnapshotInput {
+            active_tool,
+            active_content,
+            startup_state: startup_state_name,
+            inspector_visible,
+            active_note_path,
+            editor_mode,
+            editor_dirty,
+            search_query,
+            graph_scope,
+            graph_depth,
+            graph_selected_path,
+            settings_section,
+            automation_active,
+        })
+    }
+
+    pub fn dispatch_ui_automation_action(
+        &self,
+        action: UiAutomationAction,
+    ) -> UiAutomationActionResult {
+        let action_id = match &action {
+            UiAutomationAction::SwitchTool { .. } => "switch_tool",
+            UiAutomationAction::FocusSearch => "focus_search",
+            UiAutomationAction::SelectNote { .. } => "select_note",
+            UiAutomationAction::ClearSelection => "clear_selection",
+            UiAutomationAction::SetEditorMode { .. } => "set_editor_mode",
+            UiAutomationAction::OpenSettingsSection { .. } => "open_settings_section",
+            UiAutomationAction::SetGraphScope { .. } => "set_graph_scope",
+            UiAutomationAction::SetGraphDepth { .. } => "set_graph_depth",
+            UiAutomationAction::ResetGraph => "reset_graph",
+        };
+
+        if !self.automation_gate().0 {
+            return self.automation_result(
+                action_id,
+                false,
+                "automation_disabled",
+                Some("UI automation is not enabled for this session.".to_string()),
+            );
+        }
+        if !startup_shell_chrome_visible(&self.startup_state.borrow()) {
+            return self.automation_result(
+                action_id,
+                false,
+                "startup_blocked",
+                Some("A vault must be open before automation can drive the shell.".to_string()),
+            );
+        }
+
+        match action {
+            UiAutomationAction::SwitchTool { tool } => {
+                let Some(mode) = parse_tool_mode(&tool) else {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "invalid_arguments",
+                        Some(format!("Unknown tool '{tool}'.")),
+                    );
+                };
+                if matches!(mode, ToolMode::Settings) {
+                    self.settings_view.refresh();
+                }
+                {
+                    let mut shell_state = self.shell_state.borrow_mut();
+                    shell_state.select_tool(mode);
+                    apply_shell_state(
+                        &shell_state,
+                        &self.tool_rail,
+                        self.context_panel.as_ref(),
+                        &self.content_stack,
+                        &self.inspector_rail,
+                        self.search_view.as_ref(),
+                    );
+                }
+                if matches!(mode, ToolMode::Settings) {
+                    self.context_panel
+                        .set_settings_section(self.settings_view.selected_section());
+                } else if matches!(mode, ToolMode::Graph) {
+                    ensure_graph_loaded(self.graph_session_handles());
+                }
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::FocusSearch => {
+                let mut shell_state = self.shell_state.borrow_mut();
+                focus_search_shell(
+                    &mut shell_state,
+                    &self.tool_rail,
+                    self.context_panel.as_ref(),
+                    &self.content_stack,
+                    &self.inspector_rail,
+                    self.search_view.as_ref(),
+                );
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::SelectNote { path } => {
+                if self.editor.is_modified() {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "dirty_guard_blocked",
+                        Some("Dirty note guard blocked note selection.".to_string()),
+                    );
+                }
+                {
+                    let mut shell_state = self.shell_state.borrow_mut();
+                    shell_state.select_tool(ToolMode::Notes);
+                    apply_shell_state(
+                        &shell_state,
+                        &self.tool_rail,
+                        self.context_panel.as_ref(),
+                        &self.content_stack,
+                        &self.inspector_rail,
+                        self.search_view.as_ref(),
+                    );
+                }
+                build_note_load_dispatcher(Rc::clone(&self.client), self.note_session_handles())(
+                    NoteLoadOrigin::Context,
+                    &path,
+                );
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::ClearSelection => {
+                if self.editor.is_modified() {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "dirty_guard_blocked",
+                        Some("Dirty note guard blocked selection clear.".to_string()),
+                    );
+                }
+                clear_active_note(&self.note_session_handles());
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::SetEditorMode { mode } => {
+                let Some(mode) = parse_editor_mode(&mode) else {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "invalid_arguments",
+                        Some("Unknown editor mode.".to_string()),
+                    );
+                };
+                if self.current_note.borrow().is_none() {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "unsupported_context",
+                        Some("No active note is loaded.".to_string()),
+                    );
+                }
+                if !self.editor.select_mode(mode) {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "unsupported_context",
+                        Some(
+                            "Requested editor mode is unavailable for the active note.".to_string(),
+                        ),
+                    );
+                }
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::OpenSettingsSection { section } => {
+                let Some(section) = parse_settings_section(&section) else {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "invalid_arguments",
+                        Some("Unknown settings section.".to_string()),
+                    );
+                };
+                self.settings_view.refresh();
+                self.settings_view.set_section(section);
+                self.context_panel.set_settings_section(section);
+                let mut shell_state = self.shell_state.borrow_mut();
+                shell_state.select_tool(ToolMode::Settings);
+                apply_shell_state(
+                    &shell_state,
+                    &self.tool_rail,
+                    self.context_panel.as_ref(),
+                    &self.content_stack,
+                    &self.inspector_rail,
+                    self.search_view.as_ref(),
+                );
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::SetGraphScope { scope } => {
+                let Some(scope) = parse_graph_scope(&scope) else {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "invalid_arguments",
+                        Some("Unknown graph scope.".to_string()),
+                    );
+                };
+                {
+                    let mut shell_state = self.shell_state.borrow_mut();
+                    shell_state.select_tool(ToolMode::Graph);
+                    apply_shell_state(
+                        &shell_state,
+                        &self.tool_rail,
+                        self.context_panel.as_ref(),
+                        &self.content_stack,
+                        &self.inspector_rail,
+                        self.search_view.as_ref(),
+                    );
+                }
+                *self.graph_scope.borrow_mut() = scope;
+                load_graph(self.graph_session_handles());
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::SetGraphDepth { depth } => {
+                if depth == 0 {
+                    return self.automation_result(
+                        action_id,
+                        false,
+                        "invalid_arguments",
+                        Some("Graph depth must be at least 1.".to_string()),
+                    );
+                }
+                {
+                    let mut shell_state = self.shell_state.borrow_mut();
+                    shell_state.select_tool(ToolMode::Graph);
+                    apply_shell_state(
+                        &shell_state,
+                        &self.tool_rail,
+                        self.context_panel.as_ref(),
+                        &self.content_stack,
+                        &self.inspector_rail,
+                        self.search_view.as_ref(),
+                    );
+                }
+                self.graph_depth.set(u32::from(depth));
+                let graph_session = self.graph_session_handles();
+                if matches!(*self.graph_scope.borrow(), GraphScope::Neighborhood) {
+                    load_graph(graph_session);
+                } else {
+                    let scene = self.graph_current_scene.borrow().clone();
+                    sync_graph_ui(&graph_session, scene);
+                }
+                self.automation_result(action_id, true, "ok", None)
+            }
+            UiAutomationAction::ResetGraph => {
+                {
+                    let mut shell_state = self.shell_state.borrow_mut();
+                    shell_state.select_tool(ToolMode::Graph);
+                    apply_shell_state(
+                        &shell_state,
+                        &self.tool_rail,
+                        self.context_panel.as_ref(),
+                        &self.content_stack,
+                        &self.inspector_rail,
+                        self.search_view.as_ref(),
+                    );
+                }
+                *self.graph_scope.borrow_mut() = GraphScope::Vault;
+                self.graph_depth.set(1);
+                *self.graph_selected_path.borrow_mut() = None;
+                load_graph(self.graph_session_handles());
+                self.automation_result(action_id, true, "ok", None)
+            }
+        }
+    }
+
     pub fn with_client(app: &libadwaita::Application, client: KnotdClient) -> Self {
         let client = Rc::new(client);
         let startup_state = determine_startup_state(client.as_ref());
@@ -757,6 +1505,21 @@ impl KnotWindow {
             .build();
         header.set_title_widget(Some(&vault_label));
 
+        let automation_indicator = gtk::Label::builder()
+            .label("Automation active")
+            .css_classes(vec!["accent".to_string(), "caption-heading".to_string()])
+            .visible(
+                automation_gate_state(
+                    initial_config.automation.enabled,
+                    automation_runtime_enabled(),
+                    automation_runtime_token(),
+                )
+                .0,
+            )
+            .build();
+        automation_indicator.set_widget_name("knot.automation-indicator");
+        header.pack_start(&automation_indicator);
+
         // Menu button
         let menu_btn = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
@@ -769,6 +1532,7 @@ impl KnotWindow {
         let main_box = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .build();
+        main_box.set_widget_name("knot.shell");
 
         // ToolRail (left)
         let tool_rail = ToolRail::new();
@@ -780,6 +1544,7 @@ impl KnotWindow {
 
         // Content area (center)
         let content_stack = gtk::Stack::builder().vexpand(true).hexpand(true).build();
+        content_stack.set_widget_name("knot.content.stack");
 
         // Empty state view (shown when no note selected)
         let empty_view = gtk::Box::builder()
@@ -788,6 +1553,7 @@ impl KnotWindow {
             .halign(gtk::Align::Center)
             .spacing(12)
             .build();
+        empty_view.set_widget_name("knot.content.empty");
 
         let empty_icon = gtk::Image::builder()
             .icon_name("emblem-documents-symbolic")
@@ -816,6 +1582,7 @@ impl KnotWindow {
             .halign(gtk::Align::Center)
             .spacing(12)
             .build();
+        daemon_unavailable_view.set_widget_name("knot.content.daemon-unavailable");
         daemon_unavailable_view.append(
             &gtk::Label::builder()
                 .label("knotd is unavailable")
@@ -846,6 +1613,7 @@ impl KnotWindow {
             .halign(gtk::Align::Center)
             .spacing(12)
             .build();
+        no_vault_view.set_widget_name("knot.content.no-vault");
         no_vault_view.append(
             &gtk::Label::builder()
                 .label("No vault is open")
@@ -904,6 +1672,7 @@ impl KnotWindow {
             context_panel,
             inspector_rail,
             startup_state: Rc::new(RefCell::new(startup_state.clone())),
+            automation_indicator,
             vault_label,
             daemon_detail_label,
             retry_startup_btn,
@@ -918,6 +1687,12 @@ impl KnotWindow {
             note_load_state: Rc::new(RefCell::new(RequestState::idle())),
             note_load_generation: Rc::new(RefCell::new(0)),
             shell_state: Rc::new(RefCell::new(ShellState::default())),
+            graph_scope: Rc::new(RefCell::new(GraphScope::Vault)),
+            graph_depth: Rc::new(Cell::new(1_u32)),
+            graph_selected_path: Rc::new(RefCell::new(None)),
+            graph_vault_layout: Rc::new(RefCell::new(None)),
+            graph_current_scene: Rc::new(RefCell::new(GraphScene::idle())),
+            graph_request_generation: Rc::new(Cell::new(0_u64)),
         };
 
         apply_knotty_config(
@@ -1028,13 +1803,6 @@ impl KnotWindow {
     }
 
     fn setup_signals(&self) {
-        let graph_scope = Rc::new(RefCell::new(GraphScope::Vault));
-        let graph_depth = Rc::new(Cell::new(1_u32));
-        let graph_selected_path = Rc::new(RefCell::new(None::<String>));
-        let graph_vault_layout = Rc::new(RefCell::new(None::<GraphLayout>));
-        let graph_current_scene = Rc::new(RefCell::new(GraphScene::idle()));
-        let graph_request_generation = Rc::new(Cell::new(0_u64));
-
         let window = self.window.clone();
         let current_note = Rc::clone(&self.current_note);
         let editor_for_modified = Rc::clone(&self.editor);
@@ -1049,36 +1817,12 @@ impl KnotWindow {
             }
         });
 
-        let shell_ui = ShellUiHandles {
-            shell_state: Rc::clone(&self.shell_state),
-            tool_rail: self.tool_rail.clone(),
-            context_panel: Rc::clone(&self.context_panel),
-            content_stack: self.content_stack.clone(),
-            inspector_rail: self.inspector_rail.clone(),
-            search_view: Rc::clone(&self.search_view),
-        };
-        let note_session = NoteSessionHandles {
-            window: self.window.clone(),
-            editor: Rc::clone(&self.editor),
-            current_note: Rc::clone(&self.current_note),
-            note_load_state: Rc::clone(&self.note_load_state),
-            note_load_generation: Rc::clone(&self.note_load_generation),
-            shell_ui: shell_ui.clone(),
-        };
+        let shell_ui = self.shell_ui_handles();
+        let note_session = self.note_session_handles();
         let dispatch_note_load =
             build_note_load_dispatcher(Rc::clone(&self.client), note_session.clone());
 
-        let graph_session = GraphSessionHandles {
-            client: Rc::clone(&self.client),
-            graph_view: Rc::clone(&self.graph_view),
-            context_panel: Rc::clone(&self.context_panel),
-            scope: Rc::clone(&graph_scope),
-            depth: Rc::clone(&graph_depth),
-            selected_path: Rc::clone(&graph_selected_path),
-            vault_layout: Rc::clone(&graph_vault_layout),
-            current_scene: Rc::clone(&graph_current_scene),
-            request_generation: Rc::clone(&graph_request_generation),
-        };
+        let graph_session = self.graph_session_handles();
 
         // Tool mode changes
         let content_stack = self.content_stack.clone();
@@ -1112,9 +1856,18 @@ impl KnotWindow {
 
         let context_panel = Rc::clone(&self.context_panel);
         let inspector_rail = self.inspector_rail.clone();
+        let automation_indicator = self.automation_indicator.clone();
         self.settings_view
             .connect_preferences_changed(move |config| {
                 apply_knotty_config(&config, context_panel.as_ref(), &inspector_rail);
+                automation_indicator.set_visible(
+                    automation_gate_state(
+                        config.automation.enabled,
+                        automation_runtime_enabled(),
+                        automation_runtime_token(),
+                    )
+                    .0,
+                );
             });
 
         let note_switch_prompt = NoteSwitchPromptHandles {
@@ -1755,5 +2508,122 @@ mod tests {
             dirty_note_switch_response("unexpected"),
             DirtyNoteSwitchResponse::Cancel
         );
+    }
+
+    #[test]
+    fn automation_gate_requires_config_opt_in_and_runtime_token() {
+        assert_eq!(
+            automation_gate_state(false, false, None),
+            (false, Some("config_opt_in_required"))
+        );
+        assert_eq!(
+            automation_gate_state(true, false, None),
+            (false, Some("runtime_token_required"))
+        );
+        assert_eq!(
+            automation_gate_state(true, true, Some("dev-token")),
+            (true, None)
+        );
+    }
+
+    #[test]
+    fn automation_description_reports_discoverable_action_catalog() {
+        let description = UiAutomationDescription {
+            protocol_version: UI_AUTOMATION_PROTOCOL_VERSION,
+            snapshot_schema_version: UI_AUTOMATION_SNAPSHOT_SCHEMA_VERSION,
+            action_catalog_version: UI_AUTOMATION_ACTION_CATALOG_VERSION,
+            available: false,
+            unavailable_reason: Some("runtime_token_required".to_string()),
+            requires_config_opt_in: true,
+            requires_runtime_token: true,
+            actions: ui_automation_action_catalog(),
+            result_codes: ui_automation_result_codes(),
+        };
+
+        assert_eq!(description.protocol_version, 1);
+        assert_eq!(description.snapshot_schema_version, 1);
+        assert_eq!(description.action_catalog_version, 1);
+        assert!(description
+            .actions
+            .iter()
+            .any(|action| action.action_id == "switch_tool"));
+        assert!(description
+            .result_codes
+            .contains(&"automation_disabled".to_string()));
+    }
+
+    #[test]
+    fn automation_snapshot_builder_projects_shell_editor_graph_and_settings_state() {
+        let snapshot = build_ui_automation_snapshot(AutomationSnapshotInput {
+            active_tool: "settings".to_string(),
+            active_content: "settings".to_string(),
+            startup_state: "vault_open".to_string(),
+            inspector_visible: false,
+            active_note_path: Some("notes/example.md".to_string()),
+            editor_mode: Some("edit".to_string()),
+            editor_dirty: false,
+            search_query: Some("graph".to_string()),
+            graph_scope: Some("neighborhood".to_string()),
+            graph_depth: Some(2),
+            graph_selected_path: Some("notes/one.md".to_string()),
+            settings_section: Some("plugins".to_string()),
+            automation_active: true,
+        });
+
+        assert_eq!(snapshot.active_tool, "settings");
+        assert_eq!(snapshot.active_content, "settings");
+        assert_eq!(snapshot.startup_state, "vault_open");
+        assert_eq!(
+            snapshot.active_note_path.as_deref(),
+            Some("notes/example.md")
+        );
+        assert_eq!(snapshot.editor_mode.as_deref(), Some("edit"));
+        assert_eq!(snapshot.graph_scope.as_deref(), Some("neighborhood"));
+        assert_eq!(snapshot.graph_depth, Some(2));
+        assert_eq!(
+            snapshot.graph_selected_path.as_deref(),
+            Some("notes/one.md")
+        );
+        assert_eq!(snapshot.settings_section.as_deref(), Some("plugins"));
+        assert_eq!(
+            snapshot.properties.get("tool.active").map(String::as_str),
+            Some("settings")
+        );
+        assert_eq!(
+            snapshot
+                .properties
+                .get("settings.section")
+                .map(String::as_str),
+            Some("plugins")
+        );
+    }
+
+    #[test]
+    fn automation_action_result_preserves_stable_disabled_result() {
+        let result = UiAutomationActionResult {
+            action_id: "focus_search".to_string(),
+            ok: false,
+            result_code: "automation_disabled".to_string(),
+            message: Some("UI automation is not enabled for this session.".to_string()),
+            snapshot: None,
+        };
+
+        assert!(!result.ok);
+        assert_eq!(result.action_id, "focus_search");
+        assert_eq!(result.result_code, "automation_disabled");
+        assert!(result.snapshot.is_none());
+    }
+
+    #[test]
+    fn automation_parsers_accept_protocol_strings() {
+        assert_eq!(parse_tool_mode("graph"), Some(ToolMode::Graph));
+        assert_eq!(parse_editor_mode("view"), Some(EditorMode::View));
+        assert_eq!(parse_graph_scope("vault"), Some(GraphScope::Vault));
+        assert_eq!(
+            parse_settings_section("maintenance"),
+            Some(SettingsSection::Maintenance)
+        );
+        assert_eq!(parse_tool_mode("Graph"), None);
+        assert_eq!(parse_editor_mode("VIEW"), None);
     }
 }

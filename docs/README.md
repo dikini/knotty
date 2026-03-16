@@ -8,6 +8,8 @@ This directory tracks the design and planning work required to bring `knot-gtk` 
 - `specs/system/`: roadmap and dependency overview
 - `plans/`: one implementation plan per spec
 - `reference/`: frozen contracts and behavior references needed to implement the slices locally
+- `testing/`: manual smoke checklists and parity verification guides
+- `audit/`: handoff and protocol audit notes for cross-process integrations
 - `notes/`: per-subsystem future opportunities, cleanup notes, and follow-up observations that are intentionally out of the current slice
 
 ## Slice Order

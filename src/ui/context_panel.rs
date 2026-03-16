@@ -270,6 +270,7 @@ impl ContextPanel {
             .css_name("context-panel")
             .width_request(280)
             .build();
+        widget.set_widget_name("knot.context-panel");
 
         let header_label = gtk::Label::builder()
             .label("Notes")

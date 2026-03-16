@@ -1,23 +1,15 @@
 use gtk::prelude::*;
 use libadwaita::prelude::*;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 
-mod cli;
-mod client;
-mod config;
-mod runtime_contract;
-mod ui;
-
-use cli::CliArgs;
-use client::KnotdClient;
-use ui::window::KnotWindow;
-
-// Global socket path storage
-use std::sync::OnceLock;
-pub static SOCKET_PATH: OnceLock<PathBuf> = OnceLock::new();
-pub static BACKGROUND_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+use knot_gtk::cli::CliArgs;
+use knot_gtk::client::KnotdClient;
+use knot_gtk::ui::automation_controller;
+use knot_gtk::ui::window::KnotWindow;
+use knot_gtk::{
+    AUTOMATION_RUNTIME_ENABLED, AUTOMATION_RUNTIME_TOKEN, BACKGROUND_RUNTIME, SOCKET_PATH,
+};
 
 thread_local! {
     static MAIN_WINDOW: RefCell<Option<Rc<KnotWindow>>> = const { RefCell::new(None) };
@@ -62,12 +54,27 @@ fn main() -> anyhow::Result<()> {
         )
         .map_err(|_| anyhow::anyhow!("Failed to initialize background runtime"))?;
 
+    AUTOMATION_RUNTIME_ENABLED
+        .set(args.automation_enabled && args.automation_token.is_some())
+        .map_err(|_| anyhow::anyhow!("Failed to initialize automation runtime gate"))?;
+    AUTOMATION_RUNTIME_TOKEN
+        .set(args.automation_token.clone())
+        .map_err(|_| anyhow::anyhow!("Failed to initialize automation runtime token"))?;
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter("info,knot_gtk=debug")
         .init();
 
     tracing::info!("Using socket path: {}", args.socket_path.display());
+    tracing::info!(
+        "Automation runtime gate: {}",
+        if args.automation_enabled && args.automation_token.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
 
     // Initialize GTK/libadwaita
     gtk::init()?;
@@ -101,6 +108,7 @@ fn main() -> anyhow::Result<()> {
             let client = KnotdClient::with_socket_path(&socket_path);
             let window = Rc::new(KnotWindow::with_client(app, client));
             window.present();
+            automation_controller::register_window(&window);
             *slot = Some(window);
         });
     });

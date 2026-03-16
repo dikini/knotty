@@ -97,6 +97,9 @@ Content-Length: 153\r
 | `update_vault_settings` | write settings patch | settings |
 | `list_vault_plugins` | load plugin states | settings |
 | `reindex_vault` | maintenance action | settings |
+| `describe_ui_automation` | discover GTK automation protocol | automation |
+| `get_ui_snapshot` | read semantic GTK automation state | automation |
+| `dispatch_ui_action` | drive semantic GTK automation actions | automation |
 
 ## Rust Type Templates
 
