@@ -854,7 +854,6 @@ fn ui_automation_result_codes() -> Vec<String> {
     [
         "ok",
         "automation_disabled",
-        "invalid_token",
         "startup_blocked",
         "dirty_guard_blocked",
         "unsupported_context",

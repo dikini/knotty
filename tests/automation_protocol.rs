@@ -135,7 +135,7 @@ impl FakeParityState {
             properties.insert("graph.depth".to_string(), depth.to_string());
         }
         if let Some(path) = &self.active_note_path {
-            properties.insert("note.active_path".to_string(), path.clone());
+            properties.insert("note.path".to_string(), path.clone());
         }
 
         UiAutomationSnapshot {

@@ -58,7 +58,6 @@ knot-gtk --enable-automation --automation-token <TOKEN>
   "result_codes": [
     "ok",
     "automation_disabled",
-    "invalid_token",
     "startup_blocked",
     "dirty_guard_blocked",
     "unsupported_context",

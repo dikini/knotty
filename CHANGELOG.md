@@ -21,6 +21,7 @@ This project follows Common Changelog: <https://common-changelog.org/>.
 
 ### Fixed
 
+- Align the GTK automation contract with the implemented startup gate by dropping the dead `invalid_token` result code from the published protocol and correcting the mocked parity snapshot to use the real `note.path` property key.
 - Restore explorer row selection after tree refreshes and drop the stale per-row expanded flag left over from the deprecated tree widget migration.
 - Ignore local `.worktrees/` directories so isolated feature worktrees do not pollute repository status.
 - Centralize the GTK socket runtime contract so the CLI, client defaults, tests, and README all use the canonical `.../knot/knotd.sock` path.
